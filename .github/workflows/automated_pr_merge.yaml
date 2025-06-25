@@ -1,0 +1,287 @@
+name: Merge Queue Drainer
+
+# This workflow automates PR validation and merging into `master`, triggered manually
+# by an assigned SPOC using GitHub Environments.
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_numbers:
+        description: 'Comma-separated list of PR numbers to merge into master'
+        required: true
+      spoc_github_username:
+        description: 'GitHub username of the SPOC (without @)'
+        required: true
+      release_pr:
+        description: 'Optional PR number for merging release into master'
+        required: false
+
+jobs:
+  merge-release:
+    name: Merge Release to Master
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.release_pr != '' }}
+    outputs:
+      release_success: ${{ steps.check.outputs.success }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Merge release PR
+        id: merge
+        continue-on-error: true
+        run: |
+          echo "Merging release PR #${{ github.event.inputs.release_pr }} into master..."
+          gh pr merge ${{ github.event.inputs.release_pr }} --merge --admin --delete-branch
+
+      - name: Check merge result
+        id: check
+        run: |
+          if [[ "${{ steps.merge.outcome }}" == "success" ]]; then
+            echo "success=true" >> $GITHUB_OUTPUT
+          else
+            echo "success=false" >> $GITHUB_OUTPUT
+          fi
+
+  validate-prs:
+    name: Validate PRs
+    needs: [merge-release]
+    if: ${{ github.event.inputs.release_pr == '' || needs.merge-release.outputs.release_success == 'true' }}
+    runs-on: ubuntu-latest
+    outputs:
+      mergeable_prs: ${{ steps.set.outputs.mergeable }}
+      unmergeable_prs: ${{ steps.set.outputs.unmergeable }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate PRs
+        id: set
+        run: |
+          echo "Validating PRs: ${{ github.event.inputs.pr_numbers }}"
+          MERGEABLE=()
+          UNMERGEABLE=()
+
+          IFS=',' read -r -a PR_LIST <<< "${{ github.event.inputs.pr_numbers }}"
+
+          for pr in "${PR_LIST[@]}"; do
+            echo "Checking PR #$pr..."
+
+            # Get PR metadata
+            info=$(gh pr view $pr --json baseRefName,mergeable,headRefName,reviews,statusCheckRollup)
+            base=$(echo "$info" | jq -r .baseRefName)
+            mergeable=$(echo "$info" | jq -r .mergeable)
+            checks=$(echo "$info" | jq -r '.statusCheckRollup[]?.state' | grep -v SUCCESS || true)
+            approvals=$(echo "$info" | jq -r '.reviews[]?.state' | grep APPROVED | wc -l)
+
+            if [[ "$base" != "master" ]]; then
+              echo "❌ PR #$pr does not target 'master' (base=$base)"
+              UNMERGEABLE+=("$pr")
+              continue
+            fi
+
+            if [[ "$mergeable" != "MERGEABLE" ]]; then
+              echo "❌ PR #$pr is not mergeable (state=$mergeable)"
+              UNMERGEABLE+=("$pr")
+              continue
+            fi
+
+            if [[ "$approvals" -lt 2 ]]; then
+              echo "❌ PR #$pr has fewer than 2 approvals"
+              UNMERGEABLE+=("$pr")
+              continue
+            fi
+
+            if [[ -n "$checks" ]]; then
+              echo "❌ PR #$pr has failing/missing checks: $checks"
+              UNMERGEABLE+=("$pr")
+              continue
+            fi
+
+            echo "✅ PR #$pr is mergeable"
+            MERGEABLE+=("$pr")
+          done
+
+          echo "mergeable=$(jq -c -n '$ARGS.positional' --args "${MERGEABLE[@]}")" >> $GITHUB_OUTPUT
+          echo "unmergeable=$(jq -c -n '$ARGS.positional' --args "${UNMERGEABLE[@]}")" >> $GITHUB_OUTPUT
+
+  merge-approved:
+    name: Merge Validated PRs Sequentially
+    needs: validate-prs
+    runs-on: ubuntu-latest
+    environment:
+      name: merge-approvals
+    outputs:
+      merged_prs: ${{ steps.merge.outputs.merged }}
+      failed_update_prs: ${{ steps.merge.outputs.failed_update }}
+      failed_ci_prs: ${{ steps.merge.outputs.failed_ci }}
+      timeout_prs: ${{ steps.merge.outputs.timeout }}
+      failed_merge_prs: ${{ steps.merge.outputs.failed_merge }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Merge PRs Sequentially
+        id: merge
+        run: |
+          echo "Merging PRs: ${{ needs.validate-prs.outputs.mergeable_prs }}"
+          PRS=$(echo '${{ needs.validate-prs.outputs.mergeable_prs }}' | jq -r '.[]')
+
+          # Initialize tracking arrays
+          MERGED=()
+          FAILED_UPDATE=()
+          FAILED_CI=()
+          TIMEOUT=()
+          FAILED_MERGE=()
+
+          for pr in $PRS; do
+            echo "Processing PR #$pr..."
+
+            # Step 1: Update with master branch
+            echo "Updating PR #$pr with master branch..."
+            if ! gh pr update-branch $pr; then
+              echo "⚠️ Failed to update PR #$pr with master"
+              FAILED_UPDATE+=("$pr")
+              continue
+            fi
+
+            # Step 2: Trigger CI by commenting "Ok to test"
+            echo "Triggering CI for PR #$pr..."
+            gh pr comment $pr --body "Ok to test"
+
+            # Step 3: Wait for CI to complete
+            echo "Waiting for CI to complete for PR #$pr..."
+            max_wait=2700  # 45 minutes timeout
+            wait_time=0
+            check_interval=30  # Check every 30 seconds
+            ci_failed=false
+            ci_timeout=false
+
+            while [ $wait_time -lt $max_wait ]; do
+              # Get status checks
+              status_info=$(gh pr view $pr --json statusCheckRollup)
+              pending_checks=$(echo "$status_info" | jq -r '.statusCheckRollup[]? | select(.state == "PENDING" or .state == "IN_PROGRESS") | .state' | wc -l)
+              failed_checks=$(echo "$status_info" | jq -r '.statusCheckRollup[]? | select(.state == "FAILURE" or .state == "ERROR") | .state' | wc -l)
+
+              if [ "$pending_checks" -eq 0 ]; then
+                if [ "$failed_checks" -eq 0 ]; then
+                  echo "✅ All CI checks passed for PR #$pr"
+                  break
+                else
+                  echo "❌ CI checks failed for PR #$pr, skipping merge"
+                  FAILED_CI+=("$pr")
+                  ci_failed=true
+                  break
+                fi
+              fi
+
+              echo "CI still running for PR #$pr... waiting ${check_interval}s (${wait_time}/${max_wait}s elapsed)"
+              sleep $check_interval
+              wait_time=$((wait_time + check_interval))
+            done
+
+            if [ $wait_time -ge $max_wait ] && [ "$ci_failed" = false ]; then
+              echo "⏰ Timeout waiting for CI on PR #$pr, skipping merge"
+              TIMEOUT+=("$pr")
+              ci_timeout=true
+            fi
+
+            # Skip merge if CI failed or timed out
+            if [ "$ci_failed" = true ] || [ "$ci_timeout" = true ]; then
+              continue
+            fi
+
+            # Step 4: Merge the PR using squash
+            echo "Merging PR #$pr with squash..."
+            if gh pr merge $pr --squash --admin --delete-branch; then
+              echo "✅ Successfully merged PR #$pr"
+              MERGED+=("$pr")
+            else
+              echo "⚠️ Failed to merge PR #$pr"
+              FAILED_MERGE+=("$pr")
+              continue
+            fi
+
+            # Wait for merge to complete before processing next PR
+            sleep 10
+          done
+
+          # Set outputs for tracking (comma-separated)
+          IFS=','
+          echo "merged=${MERGED[*]}" >> $GITHUB_OUTPUT
+          echo "failed_update=${FAILED_UPDATE[*]}" >> $GITHUB_OUTPUT
+          echo "failed_ci=${FAILED_CI[*]}" >> $GITHUB_OUTPUT
+          echo "timeout=${TIMEOUT[*]}" >> $GITHUB_OUTPUT
+          echo "failed_merge=${FAILED_MERGE[*]}" >> $GITHUB_OUTPUT
+          unset IFS
+
+      - name: Comment on unmergeable PRs
+        if: ${{ needs.validate-prs.outputs.unmergeable_prs != '[]' }}
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prs = JSON.parse(`${{ needs.validate-prs.outputs.unmergeable_prs }}`);
+            const spoc = '${{ github.event.inputs.spoc_github_username }}';
+            for (const prNumber of prs) {
+              const pr = await github.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: parseInt(prNumber)
+              });
+
+              const author = pr.data.user.login;
+
+              await github.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body: `❌ @${author} @${spoc}, this PR could not be merged due to one or more of the following:\n\n- Less than 2 approvals\n- Failing or missing status checks\n- Not up-to-date with \`master\`\n- Not targeting \`master\`\n\nPlease address these issues to include it in the next merge cycle.`
+              });
+            }
+
+  notify-release-failure:
+    if: ${{ needs.merge-release.outputs.release_success == 'false' && github.event.inputs.release_pr != '' }}
+    runs-on: ubuntu-latest
+    needs: merge-release
+    steps:
+      - name: Notify SPOC on release merge failure
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const spoc = '${{ github.event.inputs.spoc_github_username }}';
+            await github.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: parseInt(${{ github.event.inputs.release_pr }}),
+              body: `❌ @${spoc}, the release PR #${{ github.event.inputs.release_pr }} failed to merge into \`master\`. The remaining workflow steps were skipped.`
+            });
+
+  notify-summary:
+    name: Send Summary Notification
+    needs: [validate-prs, merge-approved]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Send Summary
+        run: |
+          node .github/scripts/generate-summary.js
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SPOC: ${{ github.event.inputs.spoc_github_username }}
+          TOTAL_REQUESTED_RAW: ${{ github.event.inputs.pr_numbers }}
+          MERGED: ${{ needs.merge-approved.outputs.merged_prs }}
+          UNMERGEABLE: ${{ needs.validate-prs.outputs.unmergeable_prs }}
+          FAILED_UPDATE: ${{ needs.merge-approved.outputs.failed_update_prs }}
+          FAILED_CI: ${{ needs.merge-approved.outputs.failed_ci_prs }}
+          TIMEOUT: ${{ needs.merge-approved.outputs.timeout_prs }}
+          FAILED_MERGE: ${{ needs.merge-approved.outputs.failed_merge_prs }}
