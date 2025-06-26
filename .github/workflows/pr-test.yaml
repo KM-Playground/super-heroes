@@ -32,8 +32,8 @@ jobs:
           echo "Getting PR information for PR #$pr_number..."
 
           # Get PR info including head SHA and body
-          pr_info=$(gh pr view $pr_number --json headOid,body)
-          head_sha=$(echo "$pr_info" | jq -r .headOid)
+          pr_info=$(gh pr view $pr_number --json headRefOid,body)
+          head_sha=$(echo "$pr_info" | jq -r .headRefOid)
           pr_body=$(echo "$pr_info" | jq -r '.body // ""')
 
           # Set outputs
