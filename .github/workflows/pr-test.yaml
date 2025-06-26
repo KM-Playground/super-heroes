@@ -44,6 +44,20 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set status to pending
+        run: |
+          head_sha="${{ steps.pr-info.outputs.head_sha }}"
+
+          # Set commit status to pending to reset any previous failed status
+          gh api repos/${{ github.repository }}/statuses/$head_sha \
+            --method POST \
+            --field state=pending \
+            --field target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --field description="Running tests..." \
+            --field context="run-tests1"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Checkout PR branch
         run: |
           pr_number="${{ steps.pr-info.outputs.pr_number }}"
