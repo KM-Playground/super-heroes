@@ -1,0 +1,97 @@
+name: PR Test Runner
+
+# This workflow runs tests when someone comments "Ok to test" on a PR
+# It includes random delays and can simulate failures based on PR body content
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  run-tests:
+    name: Run Tests on PR
+    runs-on: ubuntu-latest
+    # Only run if comment is "Ok to test" and it's on a PR (not an issue)
+    if: |
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, 'Ok to test')
+    
+    steps:
+      - name: Get PR information
+        id: pr-info
+        run: |
+          echo "Getting PR information for PR #${{ github.event.issue.number }}..."
+
+          # Get PR body for failure check
+          pr_info=$(gh pr view ${{ github.event.issue.number }} --json body)
+
+          # Extract PR body for failure check
+          pr_body=$(echo "$pr_info" | jq -r '.body // ""')
+
+          # Set output
+          echo "pr_body=$pr_body" >> $GITHUB_OUTPUT
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Checkout PR branch
+        run: |
+          echo "Checking out PR #${{ github.event.issue.number }}..."
+          gh pr checkout ${{ github.event.issue.number }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Cache Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-m2
+
+      - name: Run tests
+        id: run-tests
+        run: |
+          echo "Running Maven tests..."
+          mvn clean test
+          echo "Tests completed successfully"
+
+      - name: Random delay
+        run: |
+          # Generate random number between 1 and 45
+          DELAY=$((RANDOM % 45 + 1))
+          echo "Sleeping for $DELAY seconds..."
+          sleep $DELAY
+          echo "Sleep completed"
+
+      - name: Check for failure simulation
+        id: check-failure
+        run: |
+          PR_BODY='${{ steps.pr-info.outputs.pr_body }}'
+          if [[ "$PR_BODY" == *"FAIL"* ]]; then
+            echo "PR body contains 'FAIL' - simulating test failure"
+            echo "should_fail=true" >> $GITHUB_OUTPUT
+          else
+            echo "No failure simulation required"
+            echo "should_fail=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Simulate failure if required
+        if: steps.check-failure.outputs.should_fail == 'true'
+        run: |
+          echo "❌ Simulating test failure as requested in PR body"
+          echo "::error::Simulated test failure - PR body contains 'FAIL'"
+          false
+
+      - name: Comment on success
+        if: success()
+        run: |
+          gh pr comment ${{ github.event.issue.number }} --body "✅ Tests passed"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+
