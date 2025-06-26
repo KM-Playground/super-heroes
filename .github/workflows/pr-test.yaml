@@ -17,6 +17,11 @@ jobs:
       contains(github.event.comment.body, 'Ok to test')
     
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Get PR information
         id: pr-info
         run: |
