@@ -54,7 +54,7 @@ jobs:
             --field state=pending \
             --field target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             --field description="Running tests..." \
-            --field context="run-tests1"
+            --field context="run-tests"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
