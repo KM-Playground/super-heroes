@@ -14,6 +14,7 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
+      statuses: write
     # Only run if comment is "Ok to test" and it's on a PR (not an issue)
     if: |
       github.event.issue.pull_request &&
