@@ -9,7 +9,6 @@ on:
 
 jobs:
   run-tests:
-    name: Run Tests on PR
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -29,23 +28,26 @@ jobs:
       - name: Get PR information
         id: pr-info
         run: |
-          echo "Getting PR information for PR #${{ github.event.issue.number }}..."
+          pr_number="${{ github.event.issue.number }}"
+          echo "Getting PR information for PR #$pr_number..."
 
-          # Get PR body for failure check
-          pr_info=$(gh pr view ${{ github.event.issue.number }} --json body)
-
-          # Extract PR body for failure check
+          # Get PR info including head SHA and body
+          pr_info=$(gh pr view $pr_number --json headOid,body)
+          head_sha=$(echo "$pr_info" | jq -r .headOid)
           pr_body=$(echo "$pr_info" | jq -r '.body // ""')
 
-          # Set output
+          # Set outputs
+          echo "pr_number=$pr_number" >> $GITHUB_OUTPUT
+          echo "head_sha=$head_sha" >> $GITHUB_OUTPUT
           echo "pr_body=$pr_body" >> $GITHUB_OUTPUT
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Checkout PR branch
         run: |
-          echo "Checking out PR #${{ github.event.issue.number }}..."
-          gh pr checkout ${{ github.event.issue.number }}
+          pr_number="${{ steps.pr-info.outputs.pr_number }}"
+          echo "Checking out PR #$pr_number..."
+          gh pr checkout $pr_number
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -96,10 +98,37 @@ jobs:
           echo "::error::Simulated test failure - PR body contains 'FAIL'"
           false
 
-      - name: Comment on success
+      - name: Set status to success and comment
         if: success()
         run: |
-          gh pr comment ${{ github.event.issue.number }} --body "✅ Tests passed"
+          pr_number="${{ steps.pr-info.outputs.pr_number }}"
+          head_sha="${{ steps.pr-info.outputs.head_sha }}"
+
+          # Set commit status to success
+          gh api repos/${{ github.repository }}/statuses/$head_sha \
+            --method POST \
+            --field state=success \
+            --field target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --field description="All tests passed" \
+            --field context="run-tests"
+
+          # Comment on PR
+          gh pr comment $pr_number --body "✅ Tests passed"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set status to failure
+        if: failure()
+        run: |
+          head_sha="${{ steps.pr-info.outputs.head_sha }}"
+
+          # Set commit status to failure
+          gh api repos/${{ github.repository }}/statuses/$head_sha \
+            --method POST \
+            --field state=failure \
+            --field target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --field description="Tests failed" \
+            --field context="run-tests"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
