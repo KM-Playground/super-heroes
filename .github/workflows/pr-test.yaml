@@ -16,10 +16,10 @@ jobs:
       issues: write
       statuses: write
     # Only run if comment is "Ok to test" and it's on a PR (not an issue)
-    if: |
-      github.event.issue.pull_request &&
-      contains(github.event.comment.body, 'Ok to test')
-    
+    if: >
+      github.event.comment.body &&
+      contains(fromJSON('["ok to test"]'), github.event.comment.body) &&
+      github.event.issue.pull_request != null
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
