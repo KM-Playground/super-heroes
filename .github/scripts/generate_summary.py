@@ -31,8 +31,9 @@ def parse_environment_data():
     """Parse environment variables and return processed data"""
     total_requested_raw = os.getenv('TOTAL_REQUESTED_RAW', '')
     total_requested = len([pr.strip() for pr in total_requested_raw.split(',') if pr.strip()])
-    
+
     spoc = os.getenv('SPOC', '')
+    default_branch = os.getenv('DEFAULT_BRANCH', 'main')
     
     def parse_comma_separated(env_var):
         value = os.getenv(env_var, '')
@@ -55,6 +56,7 @@ def parse_environment_data():
     
     return {
         'spoc': spoc,
+        'default_branch': default_branch,
         'total_requested': total_requested,
         'merged': merged,
         'unmergeable': unmergeable,
@@ -95,18 +97,18 @@ def generate_summary(data):
 """
     
     if data['unmergeable']:
-        summary += '\n'.join(f"- PR #{pr} (insufficient approvals, failing checks, or not targeting master)" 
+        summary += '\n'.join(f"- PR #{pr} (insufficient approvals, failing checks, or not targeting {data['default_branch']})"
                            for pr in data['unmergeable'])
     else:
         summary += "- None"
-    
-    summary += """
 
-### Update with Master Failed
+    summary += f"""
+
+### Update with {data['default_branch'].title()} Failed
 """
-    
+
     if data['failed_update']:
-        summary += '\n'.join(f"- PR #{pr} (could not update branch with master)" 
+        summary += '\n'.join(f"- PR #{pr} (could not update branch with {data['default_branch']})"
                            for pr in data['failed_update'])
     else:
         summary += "- None"
@@ -152,20 +154,20 @@ def generate_summary(data):
     return summary
 
 
-def get_failure_messages():
+def get_failure_messages(default_branch):
     """Get the failure message templates"""
     return {
-        'unmergeable': "❌ This PR could not be merged due to one or more of the following:\n\n- Less than 2 approvals\n- Failing or missing status checks\n- Not up-to-date with `master`\n- Not targeting `master`\n\nPlease address these issues to include it in the next merge cycle.",
-        'failed_update': "❌ This PR could not be updated with the latest `master` branch. There may be merge conflicts that need to be resolved manually.\n\nPlease resolve any conflicts and ensure the PR can be cleanly updated with `master`.",
-        'failed_ci': "❌ This PR's CI checks failed after being updated with `master`. Please review the failing checks and fix any issues.\n\nThe PR has been updated with the latest `master` - please check if this caused any new test failures.",
-        'timeout': "⏰ This PR's CI checks did not complete within the 45-minute timeout period after being updated with `master`.\n\nThe PR has been updated with the latest `master` - please check the CI status and re-run if needed.",
-        'failed_merge': "❌ This PR failed to merge despite passing all checks. This may be due to a last-minute conflict or GitHub API issue.\n\nThe PR has been updated with the latest `master` - please try merging manually or contact the repository administrators."
+        'unmergeable': f"❌ This PR could not be merged due to one or more of the following:\n\n- Less than 2 approvals\n- Failing or missing status checks\n- Not up-to-date with `{default_branch}`\n- Not targeting `{default_branch}`\n\nPlease address these issues to include it in the next merge cycle.",
+        'failed_update': f"❌ This PR could not be updated with the latest `{default_branch}` branch. There may be merge conflicts that need to be resolved manually.\n\nPlease resolve any conflicts and ensure the PR can be cleanly updated with `{default_branch}`.",
+        'failed_ci': f"❌ This PR's CI checks failed after being updated with `{default_branch}`. Please review the failing checks and fix any issues.\n\nThe PR has been updated with the latest `{default_branch}` - please check if this caused any new test failures.",
+        'timeout': f"⏰ This PR's CI checks did not complete within the 45-minute timeout period after being updated with `{default_branch}`.\n\nThe PR has been updated with the latest `{default_branch}` - please check the CI status and re-run if needed.",
+        'failed_merge': f"❌ This PR failed to merge despite passing all checks. This may be due to a last-minute conflict or GitHub API issue.\n\nThe PR has been updated with the latest `{default_branch}` - please try merging manually or contact the repository administrators."
     }
 
 
 def comment_on_failed_prs(data):
     """Comment on all failed PRs with specific failure reasons"""
-    failure_messages = get_failure_messages()
+    failure_messages = get_failure_messages(data['default_branch'])
     failure_categories = {
         'unmergeable': data['unmergeable'],
         'failed_update': data['failed_update'],
@@ -195,15 +197,15 @@ def comment_on_failed_prs(data):
                 print(f"❌ Failed to comment on PR #{pr_number}")
 
 
-def update_prs_with_master(prs_to_update):
-    """Update PRs with master branch"""
+def update_prs_with_default_branch(prs_to_update, default_branch):
+    """Update PRs with default branch"""
     if not prs_to_update:
         return
-        
-    print(f"Updating {len(prs_to_update)} PRs with master: {', '.join(prs_to_update)}")
-    
+
+    print(f"Updating {len(prs_to_update)} PRs with {default_branch}: {', '.join(prs_to_update)}")
+
     for pr_number in prs_to_update:
-        print(f"Updating PR #{pr_number} with master...")
+        print(f"Updating PR #{pr_number} with {default_branch}...")
         success = run_gh_command(f'gh pr update-branch {pr_number}')
         if success is not None:
             print(f"✅ Updated PR #{pr_number}")
@@ -226,9 +228,9 @@ def main():
         # Comment on failed PRs
         comment_on_failed_prs(data)
         
-        # Update PRs with master (for CI failures, timeouts, and merge failures)
+        # Update PRs with default branch (for CI failures, timeouts, and merge failures)
         prs_to_update = data['failed_ci'] + data['timeout'] + data['failed_merge']
-        update_prs_with_master(prs_to_update)
+        update_prs_with_default_branch(prs_to_update, data['default_branch'])
         
         print("PR notifications and updates completed successfully")
         

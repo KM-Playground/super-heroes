@@ -1,19 +1,19 @@
 name: Merge Queue Drainer
 
-# This workflow automates PR validation and merging into `master`, triggered manually
+# This workflow automates PR validation and merging into the default branch, triggered manually
 # by an assigned SPOC using GitHub Environments.
 
 on:
   workflow_dispatch:
     inputs:
       pr_numbers:
-        description: 'Comma-separated list of PR numbers to merge into master'
+        description: 'Comma-separated list of PR numbers to merge into the default branch'
         required: true
       spoc_github_username:
         description: 'GitHub username of the SPOC (without @)'
         required: true
       release_pr:
-        description: 'Optional PR number for merging release into master'
+        description: 'Optional PR number for merging release into the default branch'
         required: false
 
 jobs:
@@ -31,7 +31,7 @@ jobs:
         id: merge
         continue-on-error: true
         run: |
-          echo "Merging release PR #${{ github.event.inputs.release_pr }} into master..."
+          echo "Merging release PR #${{ github.event.inputs.release_pr }} into ${{ github.event.repository.default_branch }}..."
           gh pr merge ${{ github.event.inputs.release_pr }} --merge --admin --delete-branch
 
       - name: Check merge result
@@ -76,8 +76,8 @@ jobs:
             checks=$(echo "$info" | jq -r '.statusCheckRollup[]?.state' | grep -v SUCCESS || true)
             approvals=$(echo "$info" | jq -r '.reviews[]?.state' | grep APPROVED | wc -l)
 
-            if [[ "$base" != "master" ]]; then
-              echo "❌ PR #$pr does not target 'master' (base=$base)"
+            if [[ "$base" != "${{ github.event.repository.default_branch }}" ]]; then
+              echo "❌ PR #$pr does not target '${{ github.event.repository.default_branch }}' (base=$base)"
               UNMERGEABLE+=("$pr")
               continue
             fi
@@ -139,10 +139,10 @@ jobs:
           for pr in $PRS; do
             echo "Processing PR #$pr..."
 
-            # Step 1: Update with master branch
-            echo "Updating PR #$pr with master branch..."
+            # Step 1: Update with default branch
+            echo "Updating PR #$pr with ${{ github.event.repository.default_branch }} branch..."
             if ! gh pr update-branch $pr; then
-              echo "⚠️ Failed to update PR #$pr with master"
+              echo "⚠️ Failed to update PR #$pr with ${{ github.event.repository.default_branch }}"
               FAILED_UPDATE+=("$pr")
               continue
             fi
@@ -257,7 +257,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: parseInt(${{ github.event.inputs.release_pr }}),
-              body: `❌ @${spoc}, the release PR #${{ github.event.inputs.release_pr }} failed to merge into \`master\`. The remaining workflow steps were skipped.`
+              body: `❌ @${spoc}, the release PR #${{ github.event.inputs.release_pr }} failed to merge into \`${{ github.event.repository.default_branch }}\`. The remaining workflow steps were skipped.`
             });
 
   notify-summary:
@@ -279,6 +279,7 @@ jobs:
           python3 .github/scripts/generate_summary.py
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           SPOC: ${{ github.event.inputs.spoc_github_username }}
           TOTAL_REQUESTED_RAW: ${{ github.event.inputs.pr_numbers }}
           MERGED: ${{ needs.merge-approved.outputs.merged_prs }}
