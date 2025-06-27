@@ -167,14 +167,6 @@ jobs:
             MERGEABLE+=("$pr")
           done
 
-          # Debug: Print final results
-          echo "=== DEBUG: Final Results ==="
-          echo "MERGEABLE PRs: ${MERGEABLE[@]}"
-          echo "UNMERGEABLE PRs: ${UNMERGEABLE[@]}"
-          echo "MERGEABLE count: ${#MERGEABLE[@]}"
-          echo "UNMERGEABLE count: ${#UNMERGEABLE[@]}"
-          echo "=========================="
-
           # Handle empty arrays properly
           if [[ ${#MERGEABLE[@]} -eq 0 ]]; then
             echo "mergeable=[]" >> $GITHUB_OUTPUT
@@ -202,6 +194,14 @@ jobs:
           else
             echo "has_unmergeable=false" >> $GITHUB_OUTPUT
           fi
+
+      - name: Debug Output
+        run: |
+          echo "=== DEBUG: Validate PRs Job Output ==="
+          echo "Mergeable PRs:      ${{ steps.set.outputs.mergeable }}"
+          echo "Unmergeable PRs:    ${{ steps.set.outputs.unmergeable }}"
+          echo "Required approvals: ${{ steps.set.outputs.required_approvals }}"
+          echo "Has mergeable PRs:  ${{ steps.set.outputs.has_mergeable }}"  
 
   merge-approved:
     name: Merge Validated PRs Sequentially
