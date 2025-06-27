@@ -15,6 +15,9 @@ on:
       release_pr:
         description: 'Optional PR number for merging release into the default branch'
         required: false
+      required_approvals:
+        description: 'Number of required approvals (leave empty to auto-detect from branch protection)'
+        required: false
 
 jobs:
   merge-release:
@@ -53,7 +56,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-      administration: read  # Required for branch protection rules
+      metadata: read  # Required for repository metadata including branch protection
     env:
       GH_TOKEN: ${{ github.token }}
     outputs:
@@ -71,21 +74,23 @@ jobs:
           MERGEABLE=()
           UNMERGEABLE=()
 
-          # Get branch protection rules to determine required approvals
-          echo "Getting branch protection rules for ${{ github.event.repository.default_branch }}..."
-          echo "Debug: Calling gh api repos/${{ github.repository }}/branches/${{ github.event.repository.default_branch }}/protection"
-          BRANCH_PROTECTION=$(gh api repos/${{ github.repository }}/branches/${{ github.event.repository.default_branch }}/protection 2>&1 || echo '{}')
-          echo "Debug: Branch protection response: $BRANCH_PROTECTION"
-          REQUIRED_APPROVALS=$(echo "$BRANCH_PROTECTION" | jq -r '.required_pull_request_reviews.required_approving_review_count // 0' 2>/dev/null || echo "0")
+          # Determine required approvals
+          if [[ -n "${{ github.event.inputs.required_approvals }}" ]]; then
+            REQUIRED_APPROVALS="${{ github.event.inputs.required_approvals }}"
+            echo "Using manually specified required approvals: $REQUIRED_APPROVALS"
+          else
+            echo "Attempting to get branch protection rules for ${{ github.event.repository.default_branch }}..."
+            BRANCH_PROTECTION=$(gh api repos/${{ github.repository }}/branches/${{ github.event.repository.default_branch }}/protection 2>/dev/null || echo '{}')
+            REQUIRED_APPROVALS=$(echo "$BRANCH_PROTECTION" | jq -r '.required_pull_request_reviews.required_approving_review_count // 0' 2>/dev/null || echo "0")
 
-          # If we couldn't get branch protection rules (permissions issue), try alternative approach
-          if [[ "$REQUIRED_APPROVALS" == "0" ]] && [[ "$BRANCH_PROTECTION" == "{}" ]]; then
-            echo "⚠️ Could not access branch protection rules (may need admin permissions)"
-            echo "Falling back to checking if PRs can be merged without explicit approval count validation"
-            REQUIRED_APPROVALS="0"  # Will rely on GitHub's merge button availability
+            if [[ "$REQUIRED_APPROVALS" == "0" ]] && [[ "$BRANCH_PROTECTION" == "{}" ]]; then
+              echo "⚠️ Could not access branch protection rules (requires admin permissions)"
+              echo "⚠️ Defaulting to 1 required approval. Use 'required_approvals' input to override."
+              REQUIRED_APPROVALS="1"
+            else
+              echo "Retrieved from branch protection: $REQUIRED_APPROVALS required approvals"
+            fi
           fi
-
-          echo "Required approvals from branch protection: $REQUIRED_APPROVALS"
 
           IFS=',' read -r -a PR_LIST <<< "${{ github.event.inputs.pr_numbers }}"
 
