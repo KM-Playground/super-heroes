@@ -206,7 +206,6 @@ jobs:
   merge-approved:
     name: Merge Validated PRs Sequentially
     needs: [validate-prs]
-    if: ${{ needs.validate-prs.outputs.has_mergeable_prs == 'true' }}
     runs-on: ubuntu-latest
     outputs:
       merged_prs: ${{ steps.merge.outputs.merged }}
@@ -220,6 +219,7 @@ jobs:
 
       - name: Merge PRs Sequentially
         id: merge
+        if: ${{ needs.validate-prs.outputs.has_mergeable_prs == 'true' }}
         run: |
           echo "=== DEBUG: Merge Job Started ==="
           echo "Mergeable PRs from validate-prs: ${{ needs.validate-prs.outputs.mergeable_prs }}"
