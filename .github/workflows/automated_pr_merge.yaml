@@ -9,9 +9,6 @@ on:
       pr_numbers:
         description: 'Comma-separated list of PR numbers to merge into the default branch'
         required: true
-      spoc_github_username:
-        description: 'GitHub username of the SPOC (without @)'
-        required: true
       release_pr:
         description: 'Optional PR number for merging release into the default branch'
         required: false
@@ -98,7 +95,6 @@ jobs:
           echo "Repository: ${{ github.repository }}"
           echo "Default branch: ${{ github.event.repository.default_branch }}"
           echo "PR numbers input: ${{ github.event.inputs.pr_numbers }}"
-          echo "SPOC: ${{ github.event.inputs.spoc_github_username }}"
           echo "Release PR: ${{ github.event.inputs.release_pr }}"
           echo "Required approvals input: ${{ github.event.inputs.required_approvals }}"
           echo "REQUIRED_APPROVALS (calculated): $REQUIRED_APPROVALS"
@@ -300,7 +296,6 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const prs = JSON.parse(`${{ needs.validate-prs.outputs.unmergeable_prs }}`);
-            const spoc = '${{ github.event.inputs.spoc_github_username }}';
             for (const prNumber of prs) {
               const pr = await github.pulls.get({
                 owner: context.repo.owner,
@@ -314,7 +309,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: prNumber,
-                body: `❌ @${author} @${spoc}, this PR could not be merged due to one or more of the following:\n\n- Less than 2 approvals\n- Failing or missing status checks\n- Not up-to-date with \`master\`\n- Not targeting \`master\`\n\nPlease address these issues to include it in the next merge cycle.`
+                body: `❌ @${author}, this PR could not be merged due to one or more of the following:\n\n- Less than 2 approvals\n- Failing or missing status checks\n- Not up-to-date with \`${{ github.event.repository.default_branch }}\`\n- Not targeting \`${{ github.event.repository.default_branch }}\`\n\nPlease address these issues to include it in the next merge cycle.`
               });
             }
 
@@ -328,12 +323,11 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const spoc = '${{ github.event.inputs.spoc_github_username }}';
             await github.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: parseInt(${{ github.event.inputs.release_pr }}),
-              body: `❌ @${spoc}, the release PR #${{ github.event.inputs.release_pr }} failed to merge into \`${{ github.event.repository.default_branch }}\`. The remaining workflow steps were skipped.`
+              body: `❌ The release PR #${{ github.event.inputs.release_pr }} failed to merge into \`${{ github.event.repository.default_branch }}\`. The remaining workflow steps were skipped.`
             });
 
   notify-summary:
@@ -357,7 +351,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           REQUIRED_APPROVALS: ${{ needs.validate-prs.outputs.required_approvals }}
-          SPOC: ${{ github.event.inputs.spoc_github_username }}
           TOTAL_REQUESTED_RAW: ${{ github.event.inputs.pr_numbers }}
           MERGED: ${{ needs.merge-approved.outputs.merged_prs }}
           UNMERGEABLE: ${{ needs.validate-prs.outputs.unmergeable_prs }}

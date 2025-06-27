@@ -29,7 +29,6 @@ def parse_environment_data():
     total_requested_raw = os.getenv('TOTAL_REQUESTED_RAW', '')
     total_requested = len([pr.strip() for pr in total_requested_raw.split(',') if pr.strip()])
 
-    spoc = os.getenv('SPOC', '')
     default_branch = os.getenv('DEFAULT_BRANCH', 'main')
     required_approvals = os.getenv('REQUIRED_APPROVALS', '2')
     
@@ -53,7 +52,6 @@ def parse_environment_data():
     failed_merge = parse_comma_separated('FAILED_MERGE')
     
     return {
-        'spoc': spoc,
         'default_branch': default_branch,
         'required_approvals': required_approvals,
         'total_requested': total_requested,
@@ -148,7 +146,7 @@ def generate_summary(data):
     summary += f"""
 
 ---
-*Workflow executed by @{data['spoc']}*"""
+*Automated workflow execution*"""
     
     return summary
 
@@ -186,7 +184,7 @@ def comment_on_failed_prs(data):
             author = get_pr_author(pr_number)
             
             # Build complete message
-            message = f"@{author} @{data['spoc']}, {failure_messages[category]}"
+            message = f"@{author}, {failure_messages[category]}"
             
             # Comment on PR using subprocess with proper argument passing
             try:
