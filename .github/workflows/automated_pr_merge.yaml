@@ -191,7 +191,7 @@ jobs:
   merge-approved:
     name: Merge Validated PRs Sequentially
     needs: [validate-prs]
-    if: needs.validate-prs.outputs.mergeable_prs != '[]'
+    if: ${{ fromJSON(needs.validate-prs.outputs.mergeable_prs) != fromJSON('[]') }}
     runs-on: ubuntu-latest
     outputs:
       merged_prs: ${{ steps.merge.outputs.merged }}
@@ -302,7 +302,7 @@ jobs:
           unset IFS
 
       - name: Comment on unmergeable PRs
-        if: ${{ needs.validate-prs.outputs.unmergeable_prs != '[]' }}
+        if: ${{ fromJSON(needs.validate-prs.outputs.unmergeable_prs) != fromJSON('[]') }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
