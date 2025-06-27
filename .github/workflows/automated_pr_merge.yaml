@@ -329,18 +329,13 @@ jobs:
     if: ${{ needs.merge-release.outputs.release_success == 'false' && github.event.inputs.release_pr != '' }}
     runs-on: ubuntu-latest
     needs: merge-release
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Notify SPOC on release merge failure
-        uses: actions/github-script@v6
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            await github.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: parseInt(${{ github.event.inputs.release_pr }}),
-              body: `❌ The release PR #${{ github.event.inputs.release_pr }} failed to merge into \`${{ github.event.repository.default_branch }}\`. The remaining workflow steps were skipped.`
-            });
+        run: |
+          gh pr comment ${{ github.event.inputs.release_pr }} \
+            --body "❌ The release PR #${{ github.event.inputs.release_pr }} failed to merge into \`${{ github.event.repository.default_branch }}\`. The remaining workflow steps were skipped."
 
   notify-summary:
     name: Send Summary Notification
