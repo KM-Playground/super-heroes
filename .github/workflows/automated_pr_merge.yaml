@@ -267,14 +267,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          node-version: '18'
+          python-version: "3.13"
 
       - name: Send Summary
         run: |
-          node .github/scripts/generate-summary.js
+          python3 .github/scripts/generate_summary.py
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SPOC: ${{ github.event.inputs.spoc_github_username }}
