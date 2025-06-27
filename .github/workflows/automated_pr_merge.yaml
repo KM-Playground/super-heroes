@@ -73,6 +73,8 @@ jobs:
       mergeable_prs: ${{ steps.set.outputs.mergeable }}
       unmergeable_prs: ${{ steps.set.outputs.unmergeable }}
       required_approvals: ${{ steps.set.outputs.required_approvals }}
+      has_mergeable_prs: ${{ steps.set.outputs.has_mergeable }}
+      has_unmergeable_prs: ${{ steps.set.outputs.has_unmergeable }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -165,14 +167,6 @@ jobs:
             MERGEABLE+=("$pr")
           done
 
-          # Debug: Print final results
-          echo "=== DEBUG: Final Results ==="
-          echo "MERGEABLE PRs: ${MERGEABLE[@]}"
-          echo "UNMERGEABLE PRs: ${UNMERGEABLE[@]}"
-          echo "MERGEABLE count: ${#MERGEABLE[@]}"
-          echo "UNMERGEABLE count: ${#UNMERGEABLE[@]}"
-          echo "=========================="
-
           # Handle empty arrays properly
           if [[ ${#MERGEABLE[@]} -eq 0 ]]; then
             echo "mergeable=[]" >> $GITHUB_OUTPUT
@@ -188,11 +182,38 @@ jobs:
 
           echo "required_approvals=$REQUIRED_APPROVALS" >> $GITHUB_OUTPUT
 
+          # Set boolean flags for easier conditionals
+          if [[ ${#MERGEABLE[@]} -gt 0 ]]; then
+            echo "has_mergeable=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_mergeable=false" >> $GITHUB_OUTPUT
+          fi
+
+          if [[ ${#UNMERGEABLE[@]} -gt 0 ]]; then
+            echo "has_unmergeable=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_unmergeable=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Debug Output
+        run: |
+          echo "=== DEBUG: Validate PRs Job Output ==="
+          echo "Mergeable PRs:      ${{ steps.set.outputs.mergeable }}"
+          echo "Unmergeable PRs:    ${{ steps.set.outputs.unmergeable }}"
+          echo "Required approvals: ${{ steps.set.outputs.required_approvals }}"
+          echo "Has mergeable PRs:  ${{ steps.set.outputs.has_mergeable }}"  
+
   merge-approved:
     name: Merge Validated PRs Sequentially
     needs: [validate-prs]
-    if: needs.validate-prs.outputs.mergeable_prs != '[]'
     runs-on: ubuntu-latest
+    if: always()
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
     outputs:
       merged_prs: ${{ steps.merge.outputs.merged }}
       failed_update_prs: ${{ steps.merge.outputs.failed_update }}
@@ -200,11 +221,15 @@ jobs:
       timeout_prs: ${{ steps.merge.outputs.timeout }}
       failed_merge_prs: ${{ steps.merge.outputs.failed_merge }}
     steps:
+      - name: Log Job Start
+        run: echo "Starting merge job..."
+
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Merge PRs Sequentially
         id: merge
+        if: ${{ needs.validate-prs.outputs.has_mergeable_prs == 'true' }}
         run: |
           echo "=== DEBUG: Merge Job Started ==="
           echo "Mergeable PRs from validate-prs: ${{ needs.validate-prs.outputs.mergeable_prs }}"
@@ -302,9 +327,9 @@ jobs:
           unset IFS
 
       - name: Comment on unmergeable PRs
-        if: ${{ needs.validate-prs.outputs.unmergeable_prs != '[]' }}
+        if: ${{ needs.validate-prs.outputs.has_unmergeable_prs == 'true' }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           echo "Commenting on unmergeable PRs..."
           PRS=$(echo '${{ needs.validate-prs.outputs.unmergeable_prs }}' | jq -r '.[]')
@@ -327,11 +352,12 @@ jobs:
           done
 
   notify-release-failure:
+    name: Notify failure of merging release to ${{ github.event.repository.default_branch }}
     if: ${{ needs.merge-release.outputs.release_success == 'false' && github.event.inputs.release_pr != '' }}
     runs-on: ubuntu-latest
-    needs: merge-release
+    needs: [merge-release]
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -359,7 +385,7 @@ jobs:
         run: |
           python3 .github/scripts/generate_summary.py
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           REQUIRED_APPROVALS: ${{ needs.validate-prs.outputs.required_approvals }}
           TOTAL_REQUESTED_RAW: ${{ github.event.inputs.pr_numbers }}
