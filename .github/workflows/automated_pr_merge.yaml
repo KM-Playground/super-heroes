@@ -20,6 +20,8 @@ jobs:
   merge-release:
     name: Merge Release to Master
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
     if: ${{ github.event.inputs.release_pr != '' }}
     outputs:
       release_success: ${{ steps.check.outputs.success }}
