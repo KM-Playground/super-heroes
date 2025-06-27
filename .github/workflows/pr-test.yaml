@@ -54,7 +54,7 @@ jobs:
             --field state=pending \
             --field target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             --field description="Running tests..." \
-            --field context="run-tests"
+            --field context="${{ github.job }}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -125,7 +125,7 @@ jobs:
             --field state=success \
             --field target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             --field description="All tests passed" \
-            --field context="run-tests"
+            --field context="${{ github.job }}"
 
           # Comment on PR
           gh pr comment $pr_number --body "✅ Tests passed"
@@ -143,7 +143,7 @@ jobs:
             --field state=failure \
             --field target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             --field description="Tests failed" \
-            --field context="run-tests"
+            --field context="${{ github.job }}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
