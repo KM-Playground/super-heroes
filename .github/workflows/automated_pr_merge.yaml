@@ -219,7 +219,7 @@ jobs:
       pull-requests: write
       issues: write
     env:
-      GH_TOKEN: ${{ github.token }}
+      GH_TOKEN: ${{ secrets.CI_TRIGGER_TOKEN }}
     outputs:
       merged_prs: ${{ steps.merge.outputs.merged }}
       failed_update_prs: ${{ steps.merge.outputs.failed_update }}
@@ -236,8 +236,6 @@ jobs:
       - name: Merge PRs Sequentially
         id: merge
         if: ${{ needs.validate-prs.outputs.has_mergeable_prs == 'true' }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.CI_TRIGGER_TOKEN }}
         run: |
           echo "=== DEBUG: Merge Job Started ==="
           echo "Mergeable PRs from validate-prs: ${{ needs.validate-prs.outputs.mergeable_prs }}"
