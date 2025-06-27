@@ -48,6 +48,8 @@ jobs:
     needs: [merge-release]
     if: always() && (github.event.inputs.release_pr == '' || needs.merge-release.outputs.release_success == 'true')
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
     outputs:
       mergeable_prs: ${{ steps.set.outputs.mergeable }}
       unmergeable_prs: ${{ steps.set.outputs.unmergeable }}
