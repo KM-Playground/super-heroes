@@ -46,7 +46,7 @@ jobs:
   validate-prs:
     name: Validate PRs
     needs: [merge-release]
-    if: ${{ github.event.inputs.release_pr == '' || needs.merge-release.outputs.release_success == 'true' }}
+    if: always() && (github.event.inputs.release_pr == '' || needs.merge-release.outputs.release_success == 'true')
     runs-on: ubuntu-latest
     outputs:
       mergeable_prs: ${{ steps.set.outputs.mergeable }}
@@ -107,7 +107,7 @@ jobs:
 
   merge-approved:
     name: Merge Validated PRs Sequentially
-    needs: validate-prs
+    needs: [validate-prs]
     runs-on: ubuntu-latest
     environment:
       name: merge-approvals
