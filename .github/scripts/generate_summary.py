@@ -39,7 +39,15 @@ def parse_environment_data():
         return [item.strip() for item in value.split(',') if item.strip()]
     
     merged = parse_comma_separated('MERGED')
-    unmergeable = json.loads(os.getenv('UNMERGEABLE', '[]'))
+
+    # Parse UNMERGEABLE as JSON (it comes from validate-prs step as JSON)
+    try:
+        unmergeable_raw = os.getenv('UNMERGEABLE', '[]')
+        unmergeable = json.loads(unmergeable_raw) if unmergeable_raw.strip() else []
+    except json.JSONDecodeError as e:
+        print(f"Warning: Failed to parse UNMERGEABLE as JSON: {e}. Using empty list.", file=sys.stderr)
+        unmergeable = []
+
     failed_update = parse_comma_separated('FAILED_UPDATE')
     failed_ci = parse_comma_separated('FAILED_CI')
     timeout = parse_comma_separated('TIMEOUT')
