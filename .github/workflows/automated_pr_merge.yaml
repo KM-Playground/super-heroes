@@ -184,7 +184,7 @@ jobs:
     #if: needs.validate-prs.outputs.mergeable_prs != '[]'
     runs-on: ubuntu-latest
     environment:
-      name: merge-approvals
+      name: merge_queue
     outputs:
       merged_prs: ${{ steps.merge.outputs.merged }}
       failed_update_prs: ${{ steps.merge.outputs.failed_update }}
