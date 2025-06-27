@@ -118,6 +118,7 @@ jobs:
 
             # Debug: Print PR-specific variables
             echo "  Debug - PR #$pr variables:"
+            echo "    Full PR info: $info"
             echo "    Base branch: $base"
             echo "    Mergeable state: $mergeable"
             echo "    Approvals count: $approvals"
