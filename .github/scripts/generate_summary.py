@@ -11,20 +11,17 @@ import subprocess
 from datetime import datetime
 
 
-def run_gh_command(command):
-    """Run a GitHub CLI command and return the output"""
-    try:
-        result = subprocess.run(command, shell=True, capture_output=True, text=True, check=True)
-        return result.stdout.strip()
-    except subprocess.CalledProcessError as e:
-        print(f"Error running command '{command}': {e.stderr}", file=sys.stderr)
-        return None
-
-
 def get_pr_author(pr_number):
     """Get the author of a PR using GitHub CLI"""
-    author = run_gh_command(f"gh pr view {pr_number} --json author --jq '.author.login'")
-    return author if author else "PR author"
+    try:
+        result = subprocess.run([
+            'gh', 'pr', 'view', str(pr_number),
+            '--json', 'author', '--jq', '.author.login'
+        ], capture_output=True, text=True, check=True)
+        return result.stdout.strip()
+    except subprocess.CalledProcessError as e:
+        print(f"Failed to get author for PR #{pr_number}: {e.stderr}", file=sys.stderr)
+        return "PR author"
 
 
 def parse_environment_data():
@@ -34,6 +31,7 @@ def parse_environment_data():
 
     spoc = os.getenv('SPOC', '')
     default_branch = os.getenv('DEFAULT_BRANCH', 'main')
+    required_approvals = os.getenv('REQUIRED_APPROVALS', '2')
     
     def parse_comma_separated(env_var):
         value = os.getenv(env_var, '')
@@ -57,6 +55,7 @@ def parse_environment_data():
     return {
         'spoc': spoc,
         'default_branch': default_branch,
+        'required_approvals': required_approvals,
         'total_requested': total_requested,
         'merged': merged,
         'unmergeable': unmergeable,
@@ -154,10 +153,10 @@ def generate_summary(data):
     return summary
 
 
-def get_failure_messages(default_branch):
+def get_failure_messages(default_branch, required_approvals):
     """Get the failure message templates"""
     return {
-        'unmergeable': f"❌ This PR could not be merged due to one or more of the following:\n\n- Less than 2 approvals\n- Failing or missing status checks\n- Not up-to-date with `{default_branch}`\n- Not targeting `{default_branch}`\n\nPlease address these issues to include it in the next merge cycle.",
+        'unmergeable': f"❌ This PR could not be merged due to one or more of the following:\n\n- Less than {required_approvals} approvals\n- Failing or missing status checks\n- Not up-to-date with `{default_branch}`\n- Not targeting `{default_branch}`\n\nPlease address these issues to include it in the next merge cycle.",
         'failed_update': f"❌ This PR could not be updated with the latest `{default_branch}` branch. There may be merge conflicts that need to be resolved manually.\n\nPlease resolve any conflicts and ensure the PR can be cleanly updated with `{default_branch}`.",
         'failed_ci': f"❌ This PR's CI checks failed after being updated with `{default_branch}`. Please review the failing checks and fix any issues.\n\nThe PR has been updated with the latest `{default_branch}` - please check if this caused any new test failures.",
         'timeout': f"⏰ This PR's CI checks did not complete within the 45-minute timeout period after being updated with `{default_branch}`.\n\nThe PR has been updated with the latest `{default_branch}` - please check the CI status and re-run if needed.",
@@ -167,7 +166,7 @@ def get_failure_messages(default_branch):
 
 def comment_on_failed_prs(data):
     """Comment on all failed PRs with specific failure reasons"""
-    failure_messages = get_failure_messages(data['default_branch'])
+    failure_messages = get_failure_messages(data['default_branch'], data['required_approvals'])
     failure_categories = {
         'unmergeable': data['unmergeable'],
         'failed_update': data['failed_update'],
@@ -189,9 +188,17 @@ def comment_on_failed_prs(data):
             # Build complete message
             message = f"@{author} @{data['spoc']}, {failure_messages[category]}"
             
-            # Comment on PR
-            success = run_gh_command(f'gh pr comment {pr_number} --body {json.dumps(message)}')
-            if success is not None:
+            # Comment on PR using subprocess with proper argument passing
+            try:
+                result = subprocess.run([
+                    'gh', 'pr', 'comment', str(pr_number),
+                    '--body', message
+                ], capture_output=True, text=True, check=True)
+                success = True
+            except subprocess.CalledProcessError as e:
+                print(f"Error commenting on PR #{pr_number}: {e.stderr}", file=sys.stderr)
+                success = False
+            if success:
                 print(f"✅ Commented on PR #{pr_number}")
             else:
                 print(f"❌ Failed to comment on PR #{pr_number}")
@@ -206,11 +213,13 @@ def update_prs_with_default_branch(prs_to_update, default_branch):
 
     for pr_number in prs_to_update:
         print(f"Updating PR #{pr_number} with {default_branch}...")
-        success = run_gh_command(f'gh pr update-branch {pr_number}')
-        if success is not None:
+        try:
+            result = subprocess.run([
+                'gh', 'pr', 'update-branch', str(pr_number)
+            ], capture_output=True, text=True, check=True)
             print(f"✅ Updated PR #{pr_number}")
-        else:
-            print(f"❌ Failed to update PR #{pr_number}")
+        except subprocess.CalledProcessError as e:
+            print(f"❌ Failed to update PR #{pr_number}: {e.stderr}", file=sys.stderr)
 
 
 def main():
