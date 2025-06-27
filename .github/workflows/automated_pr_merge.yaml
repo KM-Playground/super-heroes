@@ -17,9 +17,23 @@ on:
         required: false
 
 jobs:
+
+  approval-gate:
+    name: Await Manual Approval (SPOC)
+    runs-on: ubuntu-latest
+    environment:
+      name: merge_queue
+    outputs:
+      approved_by: ${{ steps.set.outputs.actor }}
+    steps:
+      - name: Confirm Approver Identity
+        id: set
+        run: echo "actor=${{ github.actor }}" >> $GITHUB_OUTPUT
+
   merge-release:
     name: Merge Release to Master
     runs-on: ubuntu-latest
+    needs: [approval-gate]
     env:
       GH_TOKEN: ${{ github.token }}
     if: ${{ github.event.inputs.release_pr != '' }}
@@ -177,10 +191,8 @@ jobs:
   merge-approved:
     name: Merge Validated PRs Sequentially
     needs: [validate-prs]
-    #if: needs.validate-prs.outputs.mergeable_prs != '[]'
+    if: needs.validate-prs.outputs.mergeable_prs != '[]'
     runs-on: ubuntu-latest
-    environment:
-      name: merge_queue
     outputs:
       merged_prs: ${{ steps.merge.outputs.merged }}
       failed_update_prs: ${{ steps.merge.outputs.failed_update }}
