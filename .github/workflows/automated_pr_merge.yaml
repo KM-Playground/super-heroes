@@ -93,6 +93,19 @@ jobs:
 
           IFS=',' read -r -a PR_LIST <<< "${{ github.event.inputs.pr_numbers }}"
 
+          # Debug: Print all variables
+          echo "=== DEBUG: All Variables ==="
+          echo "Repository: ${{ github.repository }}"
+          echo "Default branch: ${{ github.event.repository.default_branch }}"
+          echo "PR numbers input: ${{ github.event.inputs.pr_numbers }}"
+          echo "SPOC: ${{ github.event.inputs.spoc_github_username }}"
+          echo "Release PR: ${{ github.event.inputs.release_pr }}"
+          echo "Required approvals input: ${{ github.event.inputs.required_approvals }}"
+          echo "REQUIRED_APPROVALS (calculated): $REQUIRED_APPROVALS"
+          echo "PR_LIST array: ${PR_LIST[@]}"
+          echo "Number of PRs to validate: ${#PR_LIST[@]}"
+          echo "=========================="
+
           for pr in "${PR_LIST[@]}"; do
             echo "Checking PR #$pr..."
 
@@ -103,6 +116,14 @@ jobs:
             checks=$(echo "$info" | jq -r '.statusCheckRollup[]?.state' | grep -v SUCCESS || true)
             approvals=$(echo "$info" | jq -r '.reviews[]?.state' | grep APPROVED | wc -l)
 
+            # Debug: Print PR-specific variables
+            echo "  Debug - PR #$pr variables:"
+            echo "    Base branch: $base"
+            echo "    Mergeable state: $mergeable"
+            echo "    Approvals count: $approvals"
+            echo "    Required approvals: $REQUIRED_APPROVALS"
+            echo "    Failing checks: $checks"
+          
             if [[ "$base" != "${{ github.event.repository.default_branch }}" ]]; then
               echo "❌ PR #$pr does not target '${{ github.event.repository.default_branch }}' (base=$base)"
               UNMERGEABLE+=("$pr")
@@ -132,6 +153,14 @@ jobs:
             echo "✅ PR #$pr is mergeable"
             MERGEABLE+=("$pr")
           done
+
+          # Debug: Print final results
+          echo "=== DEBUG: Final Results ==="
+          echo "MERGEABLE PRs: ${MERGEABLE[@]}"
+          echo "UNMERGEABLE PRs: ${UNMERGEABLE[@]}"
+          echo "MERGEABLE count: ${#MERGEABLE[@]}"
+          echo "UNMERGEABLE count: ${#UNMERGEABLE[@]}"
+          echo "=========================="
 
           # Handle empty arrays properly
           if [[ ${#MERGEABLE[@]} -eq 0 ]]; then
