@@ -56,9 +56,8 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-      metadata: read  # Required for repository metadata including branch protection
     env:
-      GH_TOKEN: ${{ github.token }}
+      GH_TOKEN: ${{ secrets.REPO_SETTINGS_READ }}
     outputs:
       mergeable_prs: ${{ steps.set.outputs.mergeable }}
       unmergeable_prs: ${{ steps.set.outputs.unmergeable }}
