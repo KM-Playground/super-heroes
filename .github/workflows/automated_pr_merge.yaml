@@ -303,27 +303,28 @@ jobs:
 
       - name: Comment on unmergeable PRs
         if: ${{ needs.validate-prs.outputs.unmergeable_prs != '[]' }}
-        uses: actions/github-script@v6
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const prs = JSON.parse(`${{ needs.validate-prs.outputs.unmergeable_prs }}`);
-            for (const prNumber of prs) {
-              const pr = await github.pulls.get({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: parseInt(prNumber)
-              });
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Commenting on unmergeable PRs..."
+          PRS=$(echo '${{ needs.validate-prs.outputs.unmergeable_prs }}' | jq -r '.[]')
 
-              const author = pr.data.user.login;
+          for pr in $PRS; do
+            echo "Getting author for PR #$pr..."
+            author=$(gh pr view $pr --json author --jq '.author.login')
 
-              await github.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: prNumber,
-                body: `❌ @${author}, this PR could not be merged due to one or more of the following:\n\n- Less than 2 approvals\n- Failing or missing status checks\n- Not up-to-date with \`${{ github.event.repository.default_branch }}\`\n- Not targeting \`${{ github.event.repository.default_branch }}\`\n\nPlease address these issues to include it in the next merge cycle.`
-              });
-            }
+            echo "Commenting on PR #$pr (author: $author)..."
+
+            # Define comment message lines
+            LINE1="❌ @${author}, this PR could not be merged due to one or more of the following:\n"
+            LINE2="- Less than ${{ needs.validate-prs.outputs.required_approvals }} approvals\n"
+            LINE3="- Failing or missing status checks\n"
+            LINE4="- Not up-to-date with \`${{ github.event.repository.default_branch }}\`\n"
+            LINE5="- Not targeting \`${{ github.event.repository.default_branch }}\`\n"
+            LINE6="Please address these issues to include it in the next merge cycle."
+
+            gh pr comment $pr --body "${LINE1}\n${LINE2}${LINE3}${LINE4}${LINE5}\n${LINE6}"
+          done
 
   notify-release-failure:
     if: ${{ needs.merge-release.outputs.release_success == 'false' && github.event.inputs.release_pr != '' }}
@@ -332,6 +333,9 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Notify SPOC on release merge failure
         run: |
           gh pr comment ${{ github.event.inputs.release_pr }} \
