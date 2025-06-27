@@ -207,6 +207,7 @@ jobs:
     name: Merge Validated PRs Sequentially
     needs: [validate-prs]
     runs-on: ubuntu-latest
+    if: always()
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     outputs:
