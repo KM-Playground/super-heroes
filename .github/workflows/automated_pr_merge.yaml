@@ -258,7 +258,7 @@ jobs:
 
             # Step 2: Trigger CI by commenting "Ok to test"
             echo "Triggering CI for PR #$pr..."
-            gh pr comment $pr --body "Ok to test"
+            gh pr comment $pr --body "ok to test"
 
             # Step 3: Wait for CI to complete
             echo "Waiting for CI to complete for PR #$pr..."
