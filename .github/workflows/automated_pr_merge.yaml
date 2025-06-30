@@ -85,121 +85,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
       - name: Validate PRs
         id: set
+        env:
+          PR_NUMBERS: ${{ github.event.inputs.pr_numbers }}
+          REQUIRED_APPROVALS: ${{ github.event.inputs.required_approvals }}
+          REPOSITORY: ${{ github.repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          RELEASE_PR: ${{ github.event.inputs.release_pr }}
         run: |
-          echo "Validating PRs: ${{ github.event.inputs.pr_numbers }}"
-          MERGEABLE=()
-          UNMERGEABLE=()
-
-          # Determine required approvals
-          if [[ -n "${{ github.event.inputs.required_approvals }}" ]]; then
-            REQUIRED_APPROVALS="${{ github.event.inputs.required_approvals }}"
-            echo "Using manually specified required approvals: $REQUIRED_APPROVALS"
-          else
-            echo "Attempting to get branch protection rules for ${{ github.event.repository.default_branch }}..."
-            BRANCH_PROTECTION=$(gh api repos/${{ github.repository }}/branches/${{ github.event.repository.default_branch }}/protection 2>/dev/null || echo '{}')
-            REQUIRED_APPROVALS=$(echo "$BRANCH_PROTECTION" | jq -r '.required_pull_request_reviews.required_approving_review_count // 0' 2>/dev/null || echo "0")
-
-            if [[ "$REQUIRED_APPROVALS" == "0" ]] && [[ "$BRANCH_PROTECTION" == "{}" ]]; then
-              echo "⚠️ Could not access branch protection rules (requires admin permissions)"
-              echo "⚠️ Defaulting to 1 required approval. Use 'required_approvals' input to override."
-              REQUIRED_APPROVALS="1"
-            else
-              echo "Retrieved from branch protection: $REQUIRED_APPROVALS required approvals"
-            fi
-          fi
-
-          IFS=',' read -r -a PR_LIST <<< "${{ github.event.inputs.pr_numbers }}"
-
-          # Debug: Print all variables
-          echo "=== DEBUG: All Variables ==="
-          echo "Repository: ${{ github.repository }}"
-          echo "Default branch: ${{ github.event.repository.default_branch }}"
-          echo "PR numbers input: ${{ github.event.inputs.pr_numbers }}"
-          echo "Release PR: ${{ github.event.inputs.release_pr }}"
-          echo "Required approvals input: ${{ github.event.inputs.required_approvals }}"
-          echo "REQUIRED_APPROVALS (calculated): $REQUIRED_APPROVALS"
-          echo "PR_LIST array: ${PR_LIST[@]}"
-          echo "Number of PRs to validate: ${#PR_LIST[@]}"
-          echo "=========================="
-
-          for pr in "${PR_LIST[@]}"; do
-            echo "Checking PR #$pr..."
-
-            # Get PR metadata
-            info=$(gh pr view $pr --json baseRefName,mergeable,headRefName,reviews,statusCheckRollup)
-            base=$(echo "$info" | jq -r .baseRefName)
-            mergeable=$(echo "$info" | jq -r .mergeable)
-            checks=$(echo "$info" | jq -r '.statusCheckRollup[]?.state' | grep -v SUCCESS || true)
-            approvals=$(echo "$info" | jq -r '.reviews[]?.state' | grep APPROVED | wc -l)
-
-            # Debug: Print PR-specific variables
-            echo "  Debug - PR #$pr variables:"
-            echo "    Full PR info: $info"
-            echo "    Base branch: $base"
-            echo "    Mergeable state: $mergeable"
-            echo "    Approvals count: $approvals"
-            echo "    Required approvals: $REQUIRED_APPROVALS"
-            echo "    Failing checks: $checks"
-          
-            if [[ "$base" != "${{ github.event.repository.default_branch }}" ]]; then
-              echo "❌ PR #$pr does not target '${{ github.event.repository.default_branch }}' (base=$base)"
-              UNMERGEABLE+=("$pr")
-              continue
-            fi
-
-            if [[ "$mergeable" == "CONFLICTING" ]]; then
-              echo "❌ PR #$pr has merge conflicts (state=$mergeable)"
-              UNMERGEABLE+=("$pr")
-              continue
-            elif [[ "$mergeable" == "UNKNOWN" ]]; then
-              echo "⚠️ PR #$pr mergeable state is unknown - will proceed and let GitHub decide"
-            fi
-
-            if [[ "$approvals" -lt "$REQUIRED_APPROVALS" ]]; then
-              echo "❌ PR #$pr has $approvals approvals, but $REQUIRED_APPROVALS are required"
-              UNMERGEABLE+=("$pr")
-              continue
-            fi
-
-            if [[ -n "$checks" ]]; then
-              echo "❌ PR #$pr has failing/missing checks: $checks"
-              UNMERGEABLE+=("$pr")
-              continue
-            fi
-
-            echo "✅ PR #$pr is mergeable"
-            MERGEABLE+=("$pr")
-          done
-
-          # Handle empty arrays properly
-          if [[ ${#MERGEABLE[@]} -eq 0 ]]; then
-            echo "mergeable=[]" >> $GITHUB_OUTPUT
-          else
-            echo "mergeable=$(jq -c -n '$ARGS.positional' --args "${MERGEABLE[@]}")" >> $GITHUB_OUTPUT
-          fi
-
-          if [[ ${#UNMERGEABLE[@]} -eq 0 ]]; then
-            echo "unmergeable=[]" >> $GITHUB_OUTPUT
-          else
-            echo "unmergeable=$(jq -c -n '$ARGS.positional' --args "${UNMERGEABLE[@]}")" >> $GITHUB_OUTPUT
-          fi
-
-          echo "required_approvals=$REQUIRED_APPROVALS" >> $GITHUB_OUTPUT
-
-          # Set boolean flags for easier conditionals
-          if [[ ${#MERGEABLE[@]} -gt 0 ]]; then
-            echo "has_mergeable=true" >> $GITHUB_OUTPUT
-          else
-            echo "has_mergeable=false" >> $GITHUB_OUTPUT
-          fi
-
-          if [[ ${#UNMERGEABLE[@]} -gt 0 ]]; then
-            echo "has_unmergeable=true" >> $GITHUB_OUTPUT
-          else
-            echo "has_unmergeable=false" >> $GITHUB_OUTPUT
-          fi
+          python3 .github/scripts/validate_prs.py
 
       - name: Debug Output
         run: |
@@ -233,110 +133,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Merge PRs Sequentially
-        id: merge
-        if: ${{ needs.validate-prs.outputs.has_mergeable_prs == 'true' }}
-        run: |
-          echo "=== DEBUG: Merge Job Started ==="
-          echo "Mergeable PRs from validate-prs: ${{ needs.validate-prs.outputs.mergeable_prs }}"
-          echo "Unmergeable PRs from validate-prs: ${{ needs.validate-prs.outputs.unmergeable_prs }}"
-          echo "Required approvals: ${{ needs.validate-prs.outputs.required_approvals }}"
-          echo "================================"
-          PRS=$(echo '${{ needs.validate-prs.outputs.mergeable_prs }}' | jq -r '.[]')
-
-          # Initialize tracking arrays
-          MERGED=()
-          FAILED_UPDATE=()
-          FAILED_CI=()
-          TIMEOUT=()
-          FAILED_MERGE=()
-
-          for pr in $PRS; do
-            echo "Processing PR #$pr..."
-
-            # Step 1: Update with default branch
-            echo "Updating PR #$pr with ${{ github.event.repository.default_branch }} branch..."
-            if ! gh pr update-branch $pr; then
-              echo "⚠️ Failed to update PR #$pr with ${{ github.event.repository.default_branch }}"
-              FAILED_UPDATE+=("$pr")
-              continue
-            fi
-
-            # Step 2: Trigger CI by commenting "Ok to test"
-            echo "Triggering CI for PR #$pr..."
-            gh pr comment $pr --body "ok to test"
-
-            # Step 3: Wait for CI to complete
-            echo "Waiting for CI to complete for PR #$pr..."
-            max_wait=2700  # 45 minutes timeout
-            wait_time=0
-            check_interval=30  # Check every 30 seconds
-            ci_failed=false
-            ci_timeout=false
-
-            while [ $wait_time -lt $max_wait ]; do
-              # Get status checks
-              status_info=$(gh pr view $pr --json statusCheckRollup)
-              pending_checks=$(echo "$status_info" | jq -r '.statusCheckRollup[]? | select(.state == "PENDING" or .state == "IN_PROGRESS") | .state' | wc -l)
-              failed_checks=$(echo "$status_info" | jq -r '.statusCheckRollup[]? | select(.state == "FAILURE" or .state == "ERROR") | .state' | wc -l)
-
-              if [ "$pending_checks" -eq 0 ]; then
-                if [ "$failed_checks" -eq 0 ]; then
-                  echo "✅ All CI checks passed for PR #$pr"
-                  break
-                else
-                  echo "❌ CI checks failed for PR #$pr, skipping merge"
-                  FAILED_CI+=("$pr")
-                  ci_failed=true
-                  break
-                fi
-              fi
-
-              echo "CI still running for PR #$pr... waiting ${check_interval}s (${wait_time}/${max_wait}s elapsed)"
-              sleep $check_interval
-              wait_time=$((wait_time + check_interval))
-            done
-
-            if [ $wait_time -ge $max_wait ] && [ "$ci_failed" = false ]; then
-              echo "⏰ Timeout waiting for CI on PR #$pr, skipping merge"
-              TIMEOUT+=("$pr")
-              ci_timeout=true
-            fi
-
-            # Skip merge if CI failed or timed out
-            if [ "$ci_failed" = true ] || [ "$ci_timeout" = true ]; then
-              continue
-            fi
-
-            # Step 4: Merge the PR using squash
-            echo "Merging PR #$pr with squash..."
-            if gh pr merge $pr --squash --admin --delete-branch; then
-              echo "✅ Successfully merged PR #$pr"
-              MERGED+=("$pr")
-            else
-              echo "⚠️ Failed to merge PR #$pr"
-              FAILED_MERGE+=("$pr")
-              continue
-            fi
-
-            # Wait for merge to complete before processing next PR
-            sleep 10
-          done
-
-          # Set outputs for tracking (comma-separated)
-          IFS=','
-          echo "merged=${MERGED[*]}" >> $GITHUB_OUTPUT
-          echo "failed_update=${FAILED_UPDATE[*]}" >> $GITHUB_OUTPUT
-          echo "failed_ci=${FAILED_CI[*]}" >> $GITHUB_OUTPUT
-          echo "timeout=${TIMEOUT[*]}" >> $GITHUB_OUTPUT
-          echo "failed_merge=${FAILED_MERGE[*]}" >> $GITHUB_OUTPUT
-          unset IFS
-
       - name: Setup Python
-        if: ${{ needs.validate-prs.outputs.has_unmergeable_prs == 'true' || needs.merge-approved.outputs.failed_merge_prs != '' }}
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+
+      - name: Merge PRs Sequentially
+        id: merge
+        if: ${{ needs.validate-prs.outputs.has_mergeable_prs == 'true' }}
+        env:
+          MERGEABLE_PRS: ${{ needs.validate-prs.outputs.mergeable_prs }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          MAX_WAIT_SECONDS: "2700"  # 45 minutes
+          CHECK_INTERVAL: "30"      # 30 seconds
+        run: |
+          python3 .github/scripts/merge_prs_sequentially.py
 
       - name: Comment on unmergeable PRs
         if: ${{ needs.validate-prs.outputs.has_unmergeable_prs == 'true' || needs.merge-approved.outputs.failed_merge_prs != '' }}
