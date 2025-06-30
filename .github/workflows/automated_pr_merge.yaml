@@ -332,30 +332,22 @@ jobs:
           echo "failed_merge=${FAILED_MERGE[*]}" >> $GITHUB_OUTPUT
           unset IFS
 
+      - name: Setup Python
+        if: ${{ needs.validate-prs.outputs.has_unmergeable_prs == 'true' || needs.merge-approved.outputs.failed_merge_prs != '' }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
       - name: Comment on unmergeable PRs
-        if: ${{ needs.validate-prs.outputs.has_unmergeable_prs == 'true' }}
+        if: ${{ needs.validate-prs.outputs.has_unmergeable_prs == 'true' || needs.merge-approved.outputs.failed_merge_prs != '' }}
         env:
           GH_TOKEN: ${{ github.token }}
+          INITIAL_UNMERGEABLE_PRS: ${{ needs.validate-prs.outputs.unmergeable_prs }}
+          FAILED_MERGE_PRS: ${{ needs.merge-approved.outputs.failed_merge_prs }}
+          REQUIRED_APPROVALS: ${{ needs.validate-prs.outputs.required_approvals }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          echo "Commenting on unmergeable PRs..."
-          PRS=$(echo '${{ needs.validate-prs.outputs.unmergeable_prs }}' | jq -r '.[]')
-
-          for pr in $PRS; do
-            echo "Getting author for PR #$pr..."
-            author=$(gh pr view $pr --json author --jq '.author.login')
-
-            echo "Commenting on PR #$pr (author: $author)..."
-
-            # Define comment message lines
-            LINE1="❌ @${author}, this PR could not be merged due to one or more of the following:\n"
-            LINE2="- Less than ${{ needs.validate-prs.outputs.required_approvals }} approvals\n"
-            LINE3="- Failing or missing status checks\n"
-            LINE4="- Not up-to-date with \`${{ github.event.repository.default_branch }}\`\n"
-            LINE5="- Not targeting \`${{ github.event.repository.default_branch }}\`\n"
-            LINE6="Please address these issues to include it in the next merge cycle."
-
-            gh pr comment $pr --body "${LINE1}\n${LINE2}${LINE3}${LINE4}${LINE5}\n${LINE6}"
-          done
+          python3 .github/scripts/process_unmergeable_prs.py
 
   notify-release-failure:
     name: Notify failure of merging release to ${{ github.event.repository.default_branch }}
