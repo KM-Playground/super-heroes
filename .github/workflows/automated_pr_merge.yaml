@@ -41,7 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [approval-gate]
     env:
-      GH_TOKEN: ${{ github.token }}
+      GH_TOKEN: ${{ secrets.CI_TRIGGER_TOKEN }}
     if: ${{ github.event.inputs.release_pr != '' }}
     outputs:
       release_success: ${{ steps.check.outputs.success }}
@@ -64,6 +64,12 @@ jobs:
           else
             echo "success=false" >> $GITHUB_OUTPUT
           fi
+
+      - name: Fail job if merge unsuccessful
+        if: ${{ steps.check.outputs.success == 'false' }}
+        run: |
+          echo "Release PR merge failed - failing this job"
+          false
 
   validate-prs:
     name: Validate PRs
@@ -113,7 +119,7 @@ jobs:
     name: Merge Validated PRs Sequentially
     needs: [validate-prs]
     runs-on: ubuntu-latest
-    if: always()
+    if: always() && needs.validate-prs.outputs.has_mergeable_prs == 'true'
     permissions:
       contents: write
       pull-requests: write
