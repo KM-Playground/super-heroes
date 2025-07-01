@@ -41,7 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [approval-gate]
     env:
-      GH_TOKEN: ${{ github.token }}
+      GH_TOKEN: ${{ secrets.CI_TRIGGER_TOKEN }}
     if: ${{ github.event.inputs.release_pr != '' }}
     outputs:
       release_success: ${{ steps.check.outputs.success }}
