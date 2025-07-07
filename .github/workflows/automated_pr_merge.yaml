@@ -153,7 +153,7 @@ jobs:
           MAX_WAIT_SECONDS: "2700"  # 45 minutes
           CHECK_INTERVAL: "30"      # 30 seconds
         run: |
-          python3 .github/scripts/merge_prs_sequentially.py
+          python3 -u .github/scripts/merge_prs_sequentially.py
 
       - name: Comment on unmergeable PRs
         if: ${{ needs.validate-prs.outputs.has_unmergeable_prs == 'true' || needs.merge-approved.outputs.failed_merge_prs != '' }}

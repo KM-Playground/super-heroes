@@ -18,8 +18,10 @@ def get_env_var(name: str, default: str = "") -> str:
 
 def run_gh_command(args: List[str], check: bool = True) -> Tuple[bool, str, str]:
     """Run a GitHub CLI command and return success, stdout, stderr."""
+    import sys
     command = ["gh"] + args
     print(f"🔧 Running command: {' '.join(command)}")
+    sys.stdout.flush()  # Force flush to ensure output appears in GitHub Actions logs
     try:
         result = subprocess.run(
             command,
