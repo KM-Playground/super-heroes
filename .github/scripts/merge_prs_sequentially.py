@@ -11,31 +11,13 @@ This script handles the complete merge process:
 6. Track results and failures
 """
 
-import json
 import os
-import subprocess
+import json
 import sys
 import time
-from typing import List, Dict, Tuple
+from typing import List, Tuple
 
-
-def get_env_var(name: str, default: str = "") -> str:
-    """Get environment variable with optional default."""
-    return os.environ.get(name, default)
-
-
-def run_gh_command(args: List[str], check: bool = True) -> Tuple[bool, str, str]:
-    """Run a GitHub CLI command and return success, stdout, stderr."""
-    try:
-        result = subprocess.run(
-            ["gh"] + args,
-            capture_output=True,
-            text=True,
-            check=check
-        )
-        return True, result.stdout.strip(), result.stderr.strip()
-    except subprocess.CalledProcessError as e:
-        return False, e.stdout.strip() if e.stdout else "", e.stderr.strip() if e.stderr else ""
+from gh_utils import get_env_var, run_gh_command
 
 
 def parse_mergeable_prs(json_str: str) -> List[int]:
@@ -134,17 +116,46 @@ def wait_for_ci(pr_number: int, max_wait_seconds: int = 2700, check_interval: in
     return "timeout"
 
 
+def is_release_branch(pr_number: int) -> bool:
+    """Check if a PR is from a release branch."""
+    success, stdout, stderr = run_gh_command(["pr", "view", str(pr_number), "--json", "headRefName"], check=False)
+    if not success:
+        print(f"⚠️ Could not determine branch name for PR #{pr_number}, assuming it's not a release branch")
+        return False
+
+    try:
+        pr_data = json.loads(stdout)
+        branch_name = pr_data.get("headRefName", "").lower()
+        # Check if branch name contains common release branch patterns
+        release_patterns = ["release", "rel-", "hotfix", "patch", "master"]
+        return any(pattern in branch_name for pattern in release_patterns)
+    except (json.JSONDecodeError, KeyError):
+        print(f"⚠️ Could not parse branch name for PR #{pr_number}, assuming it's not a release branch")
+        return False
+
+
 def merge_pr(pr_number: int) -> bool:
     """Merge a PR using squash merge."""
     print(f"Merging PR #{pr_number} with squash...")
-    success, stdout, stderr = run_gh_command(["pr", "merge", str(pr_number), "--squash", "--admin", "--delete-branch"], check=False)
-    
+
+    # # Check if this is a release branch to determine if we should delete it
+    delete_branch = not is_release_branch(pr_number)
+
+    merge_args = ["pr", "merge", str(pr_number), "--squash", "--admin"]
+    if delete_branch:
+        merge_args.append("--delete-branch")
+        print(f"Will delete branch after merge (feature branch)")
+    else:
+        print(f"Will keep branch after merge (release branch)")
+
+    success, stdout, stderr = run_gh_command(merge_args, check=False)
+
     if not success:
         print(f"⚠️ Failed to merge PR #{pr_number}")
         if stderr:
             print(f"Error: {stderr}")
         return False
-    
+
     print(f"✅ Successfully merged PR #{pr_number}")
     return True
 
@@ -163,7 +174,7 @@ def main():
     """Main function to merge PRs sequentially."""
     # Get environment variables
     mergeable_prs_json = get_env_var("MERGEABLE_PRS", "[]")
-    default_branch = get_env_var("DEFAULT_BRANCH", "main")
+    default_branch = get_env_var("DEFAULT_BRANCH", "master")
     max_wait_seconds = int(get_env_var("MAX_WAIT_SECONDS", "2700"))  # 45 minutes
     check_interval = int(get_env_var("CHECK_INTERVAL", "30"))  # 30 seconds
     

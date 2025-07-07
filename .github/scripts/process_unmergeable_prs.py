@@ -7,15 +7,10 @@ during the merge process, then generates appropriate comments for each PR author
 """
 
 import json
-import os
-import subprocess
 import sys
-from typing import List, Dict, Set
+from typing import List
 
-
-def get_env_var(name: str, default: str = "") -> str:
-    """Get environment variable with optional default."""
-    return os.environ.get(name, default)
+from gh_utils import get_env_var, get_pr_author, comment_on_pr
 
 
 def parse_json_array(json_str: str) -> List[str]:
@@ -36,34 +31,7 @@ def parse_comma_separated(csv_str: str) -> List[str]:
     return [pr.strip() for pr in csv_str.split(",") if pr.strip()]
 
 
-def get_pr_author(pr_number: str) -> str:
-    """Get PR author using GitHub CLI."""
-    try:
-        result = subprocess.run(
-            ["gh", "pr", "view", pr_number, "--json", "author", "--jq", ".author.login"],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        return result.stdout.strip()
-    except subprocess.CalledProcessError as e:
-        print(f"Error getting author for PR #{pr_number}: {e}")
-        return "unknown"
 
-
-def comment_on_pr(pr_number: str, message: str) -> bool:
-    """Comment on a PR using GitHub CLI."""
-    try:
-        subprocess.run(
-            ["gh", "pr", "comment", pr_number, "--body", message],
-            check=True,
-            capture_output=True
-        )
-        print(f"✅ Commented on PR #{pr_number}")
-        return True
-    except subprocess.CalledProcessError as e:
-        print(f"❌ Failed to comment on PR #{pr_number}: {e}")
-        return False
 
 
 def generate_validation_failure_message(author: str, required_approvals: str, default_branch: str) -> str:

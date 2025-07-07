@@ -10,30 +10,12 @@ This script validates PRs against the following criteria:
 5. Determines required approvals from branch protection or manual input
 """
 
-import json
 import os
-import subprocess
+import json
 import sys
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Optional, Tuple
 
-
-def get_env_var(name: str, default: str = "") -> str:
-    """Get environment variable with optional default."""
-    return os.environ.get(name, default)
-
-
-def run_gh_command(args: List[str], check: bool = True) -> Tuple[bool, str, str]:
-    """Run a GitHub CLI command and return success, stdout, stderr."""
-    try:
-        result = subprocess.run(
-            ["gh"] + args,
-            capture_output=True,
-            text=True,
-            check=check
-        )
-        return True, result.stdout.strip(), result.stderr.strip()
-    except subprocess.CalledProcessError as e:
-        return False, e.stdout.strip() if e.stdout else "", e.stderr.strip() if e.stderr else ""
+from gh_utils import get_env_var, run_gh_command
 
 
 def parse_pr_numbers(pr_numbers_str: str) -> List[str]:

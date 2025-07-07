@@ -7,21 +7,9 @@ This script handles all processing and GitHub CLI calls in one place
 import os
 import sys
 import json
-import subprocess
 from datetime import datetime
 
-
-def get_pr_author(pr_number):
-    """Get the author of a PR using GitHub CLI"""
-    try:
-        result = subprocess.run([
-            'gh', 'pr', 'view', str(pr_number),
-            '--json', 'author', '--jq', '.author.login'
-        ], capture_output=True, text=True, check=True)
-        return result.stdout.strip()
-    except subprocess.CalledProcessError as e:
-        print(f"Failed to get author for PR #{pr_number}: {e.stderr}", file=sys.stderr)
-        return "PR author"
+from gh_utils import get_pr_author, comment_on_pr, update_pr_branch
 
 
 def parse_environment_data():
@@ -186,20 +174,8 @@ def comment_on_failed_prs(data):
             # Build complete message
             message = f"@{author}, {failure_messages[category]}"
             
-            # Comment on PR using subprocess with proper argument passing
-            try:
-                result = subprocess.run([
-                    'gh', 'pr', 'comment', str(pr_number),
-                    '--body', message
-                ], capture_output=True, text=True, check=True)
-                success = True
-            except subprocess.CalledProcessError as e:
-                print(f"Error commenting on PR #{pr_number}: {e.stderr}", file=sys.stderr)
-                success = False
-            if success:
-                print(f"✅ Commented on PR #{pr_number}")
-            else:
-                print(f"❌ Failed to comment on PR #{pr_number}")
+            # Comment on PR using shared utility
+            comment_on_pr(str(pr_number), message)
 
 
 def update_prs_with_default_branch(prs_to_update, default_branch):
@@ -211,13 +187,7 @@ def update_prs_with_default_branch(prs_to_update, default_branch):
 
     for pr_number in prs_to_update:
         print(f"Updating PR #{pr_number} with {default_branch}...")
-        try:
-            result = subprocess.run([
-                'gh', 'pr', 'update-branch', str(pr_number)
-            ], capture_output=True, text=True, check=True)
-            print(f"✅ Updated PR #{pr_number}")
-        except subprocess.CalledProcessError as e:
-            print(f"❌ Failed to update PR #{pr_number}: {e.stderr}", file=sys.stderr)
+        update_pr_branch(str(pr_number))
 
 
 def main():
