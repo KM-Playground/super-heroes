@@ -8,4 +8,10 @@ public class Hulk {
 	System.out.println("Hulk..smash");
     }
 
+    public static void smash() {
+	    //dummy implementation
+    }
+    
+
+
 }
