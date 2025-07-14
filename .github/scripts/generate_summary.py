@@ -37,6 +37,7 @@ def parse_environment_data():
     failed_update = parse_comma_separated('FAILED_UPDATE')
     failed_ci = parse_comma_separated('FAILED_CI')
     timeout = parse_comma_separated('TIMEOUT')
+    startup_timeout = parse_comma_separated('STARTUP_TIMEOUT')
     failed_merge = parse_comma_separated('FAILED_MERGE')
     
     return {
@@ -48,6 +49,7 @@ def parse_environment_data():
         'failed_update': failed_update,
         'failed_ci': failed_ci,
         'timeout': timeout,
+        'startup_timeout': startup_timeout,
         'failed_merge': failed_merge
     }
 
@@ -55,8 +57,8 @@ def parse_environment_data():
 def generate_summary(data):
     """Generate the PR merge summary report"""
     total_merged = len(data['merged'])
-    total_failed = (len(data['unmergeable']) + len(data['failed_update']) + 
-                   len(data['failed_ci']) + len(data['timeout']) + len(data['failed_merge']))
+    total_failed = (len(data['unmergeable']) + len(data['failed_update']) +
+                   len(data['failed_ci']) + len(data['timeout']) + len(data['startup_timeout']) + len(data['failed_merge']))
     date = datetime.now().strftime('%Y-%m-%d')
     
     summary = f"""# PR Merge Summary - {date}
@@ -111,15 +113,26 @@ def generate_summary(data):
     
     summary += """
 
-### CI Timeout
+### CI Execution Timeout
 """
-    
+
     if data['timeout']:
-        summary += '\n'.join(f"- PR #{pr} (CI did not complete within 45 minutes)" 
+        summary += '\n'.join(f"- PR #{pr} (CI did not complete within 45 minutes)"
                            for pr in data['timeout'])
     else:
         summary += "- None"
-    
+
+    summary += """
+
+### CI Startup Timeout
+"""
+
+    if data['startup_timeout']:
+        summary += '\n'.join(f"- PR #{pr} (CI workflow did not start within 5 minutes)"
+                           for pr in data['startup_timeout'])
+    else:
+        summary += "- None"
+
     summary += """
 
 ### Merge Operation Failed
@@ -146,6 +159,7 @@ def get_failure_messages(default_branch, required_approvals):
         'failed_update': f"❌ This PR could not be updated with the latest `{default_branch}` branch. There may be merge conflicts that need to be resolved manually.\n\nPlease resolve any conflicts and ensure the PR can be cleanly updated with `{default_branch}`.",
         'failed_ci': f"❌ This PR's CI checks failed after being updated with `{default_branch}`. Please review the failing checks and fix any issues.\n\nThe PR has been updated with the latest `{default_branch}` - please check if this caused any new test failures.",
         'timeout': f"⏰ This PR's CI checks did not complete within the 45-minute timeout period after being updated with `{default_branch}`.\n\nThe PR has been updated with the latest `{default_branch}` - please check the CI status and re-run if needed.",
+        'startup_timeout': f"⏰ This PR's CI workflow did not start within the 5-minute startup timeout period after being triggered.\n\nThis may indicate issues with CI runner availability or workflow configuration. The PR has been updated with the latest `{default_branch}` - please check the CI status and re-trigger if needed.",
         'failed_merge': f"❌ This PR failed to merge despite passing all checks. This may be due to a last-minute conflict or GitHub API issue.\n\nThe PR has been updated with the latest `{default_branch}` - please try merging manually or contact the repository administrators."
     }
 
@@ -158,6 +172,7 @@ def comment_on_failed_prs(data):
         'failed_update': data['failed_update'],
         'failed_ci': data['failed_ci'],
         'timeout': data['timeout'],
+        'startup_timeout': data['startup_timeout'],
         'failed_merge': data['failed_merge']
     }
     
@@ -206,7 +221,7 @@ def main():
         comment_on_failed_prs(data)
         
         # Update PRs with default branch (for CI failures, timeouts, and merge failures)
-        prs_to_update = data['failed_ci'] + data['timeout'] + data['failed_merge']
+        prs_to_update = data['failed_ci'] + data['timeout'] + data['startup_timeout'] + data['failed_merge']
         update_prs_with_default_branch(prs_to_update, data['default_branch'])
         
         print("PR notifications and updates completed successfully")

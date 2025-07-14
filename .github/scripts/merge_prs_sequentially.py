@@ -53,53 +53,123 @@ def trigger_ci(pr_number: int) -> bool:
     """Trigger CI by commenting 'ok to test' on the PR."""
     print(f"Triggering CI for PR #{pr_number}...")
     success, stdout, stderr = run_gh_command(["pr", "comment", str(pr_number), "--body", "ok to test"], check=False)
-    
+
     if not success:
         print(f"⚠️ Failed to trigger CI for PR #{pr_number}")
         if stderr:
             print(f"Error: {stderr}")
         return False
-    
+
     print(f"✅ CI triggered for PR #{pr_number}")
     return True
+
+
+def wait_for_ci_to_start(pr_number: int, max_startup_wait: int = 300) -> bool:
+    """
+    Wait for CI workflow to start and register status checks.
+
+    Args:
+        pr_number: The PR number to monitor
+        max_startup_wait: Maximum seconds to wait for CI to start (default: 5 minutes)
+
+    Returns:
+        True if CI started (status checks detected), False if timeout
+    """
+    print(f"⏳ Waiting for CI workflow to start for PR #{pr_number}...")
+
+    wait_time = 0
+    check_intervals = [5, 5, 10, 10, 15, 15, 30, 30]  # Progressive intervals
+    interval_index = 0
+
+    while wait_time < max_startup_wait:
+        # Get current interval, using the last one if we've exceeded the list
+        current_interval = check_intervals[min(interval_index, len(check_intervals) - 1)]
+
+        # Check for status checks (but don't print detailed debug info yet)
+        success, stdout, stderr = run_gh_command(["pr", "view", str(pr_number), "--json", "statusCheckRollup"], check=False)
+
+        if success:
+            try:
+                status_info = json.loads(stdout)
+                checks = status_info.get("statusCheckRollup", [])
+
+                if checks:
+                    print(f"✅ CI workflow started for PR #{pr_number} (detected {len(checks)} status check(s))")
+                    return True
+
+            except (json.JSONDecodeError, KeyError):
+                pass  # Continue waiting
+
+        print(f"⏳ CI not started yet for PR #{pr_number}, waiting {current_interval}s... ({wait_time}/{max_startup_wait}s elapsed)")
+        time.sleep(current_interval)
+        wait_time += current_interval
+        interval_index += 1
+
+    print(f"⚠️ Timeout waiting for CI to start for PR #{pr_number} after {max_startup_wait}s")
+    return False
 
 
 def get_pr_status_checks(pr_number: int) -> Tuple[int, int]:
     """Get the count of pending and failed status checks for a PR."""
     success, stdout, stderr = run_gh_command(["pr", "view", str(pr_number), "--json", "statusCheckRollup"], check=False)
-    
+
     if not success:
         print(f"⚠️ Failed to get status checks for PR #{pr_number}")
         return 0, 1  # Assume failure if we can't get status
-    
+
     try:
         status_info = json.loads(stdout)
         checks = status_info.get("statusCheckRollup", [])
-        
+
+        # Debug: Show all status checks
+        print(f"📊 Status checks for PR #{pr_number}:")
+        if not checks:
+            print("  No status checks found")
+        else:
+            for check in checks:
+                context = check.get("context", "unknown")
+                state = check.get("state", "unknown")
+                description = check.get("description", "")
+                print(f"  - {context}: {state} ({description})")
+
         pending_count = sum(1 for check in checks if check.get("state") in ["PENDING", "IN_PROGRESS"])
         failed_count = sum(1 for check in checks if check.get("state") in ["FAILURE", "ERROR"])
-        
+        success_count = sum(1 for check in checks if check.get("state") == "SUCCESS")
+
+        print(f"📈 Summary: {pending_count} pending, {failed_count} failed, {success_count} passed")
+
         return pending_count, failed_count
     except (json.JSONDecodeError, KeyError) as e:
         print(f"⚠️ Error parsing status checks for PR #{pr_number}: {e}")
         return 0, 1  # Assume failure if we can't parse
 
 
-def wait_for_ci(pr_number: int, max_wait_seconds: int = 2700, check_interval: int = 30) -> str:
+def wait_for_ci(pr_number: int, max_wait_seconds: int = 2700, check_interval: int = 30, max_startup_wait: int = 300) -> str:
     """
     Wait for CI to complete on a PR.
-    
+
+    Args:
+        pr_number: The PR number to monitor
+        max_wait_seconds: Maximum seconds to wait for CI completion (default: 45 minutes)
+        check_interval: Seconds between status checks during CI execution (default: 30s)
+        max_startup_wait: Maximum seconds to wait for CI to start (default: 5 minutes)
+
     Returns:
         "success" - All checks passed
         "failed" - Some checks failed
         "timeout" - Timed out waiting for checks
+        "startup_timeout" - CI never started
     """
-    print(f"Waiting for CI to complete for PR #{pr_number}...")
+    # First, wait for CI to start
+    if not wait_for_ci_to_start(pr_number, max_startup_wait):
+        return "startup_timeout"
+
+    print(f"🔄 Monitoring CI execution for PR #{pr_number}...")
     wait_time = 0
-    
+
     while wait_time < max_wait_seconds:
         pending_checks, failed_checks = get_pr_status_checks(pr_number)
-        
+
         if pending_checks == 0:
             if failed_checks == 0:
                 print(f"✅ All CI checks passed for PR #{pr_number}")
@@ -107,12 +177,12 @@ def wait_for_ci(pr_number: int, max_wait_seconds: int = 2700, check_interval: in
             else:
                 print(f"❌ CI checks failed for PR #{pr_number}, skipping merge")
                 return "failed"
-        
-        print(f"CI still running for PR #{pr_number}... waiting {check_interval}s ({wait_time}/{max_wait_seconds}s elapsed)")
+
+        print(f"⏳ CI still running for PR #{pr_number}... waiting {check_interval}s ({wait_time}/{max_wait_seconds}s elapsed)")
         time.sleep(check_interval)
         wait_time += check_interval
-    
-    print(f"⏰ Timeout waiting for CI on PR #{pr_number}, skipping merge")
+
+    print(f"⏰ Timeout waiting for CI completion on PR #{pr_number}, skipping merge")
     return "timeout"
 
 
@@ -177,12 +247,14 @@ def main():
     default_branch = get_env_var("DEFAULT_BRANCH", "master")
     max_wait_seconds = int(get_env_var("MAX_WAIT_SECONDS", "2700"))  # 45 minutes
     check_interval = int(get_env_var("CHECK_INTERVAL", "30"))  # 30 seconds
+    max_startup_wait = int(get_env_var("MAX_STARTUP_WAIT", "300"))  # 5 minutes
     
     print("=== DEBUG: Merge Job Started ===")
     print(f"Mergeable PRs JSON: {mergeable_prs_json}")
     print(f"Default branch: {default_branch}")
     print(f"Max wait time: {max_wait_seconds}s")
     print(f"Check interval: {check_interval}s")
+    print(f"Max startup wait: {max_startup_wait}s")
     print("================================")
     
     # Parse and sort PRs
@@ -191,7 +263,7 @@ def main():
     if not pr_numbers:
         print("No mergeable PRs to process.")
         # Set empty outputs
-        for output_name in ["merged", "failed_update", "failed_ci", "timeout", "failed_merge"]:
+        for output_name in ["merged", "failed_update", "failed_ci", "timeout", "failed_merge", "startup_timeout"]:
             set_github_output(output_name, "")
         return 0
     
@@ -203,6 +275,7 @@ def main():
     failed_ci = []
     timeout = []
     failed_merge = []
+    startup_timeout = []
     
     # Process each PR
     for pr_number in pr_numbers:
@@ -217,15 +290,19 @@ def main():
         if not trigger_ci(pr_number):
             failed_update.append(str(pr_number))  # Treat CI trigger failure as update failure
             continue
-        
+
         # Step 3: Wait for CI to complete
-        ci_result = wait_for_ci(pr_number, max_wait_seconds, check_interval)
-        
+        print(f"🔄 Starting CI monitoring for PR #{pr_number}...")
+        ci_result = wait_for_ci(pr_number, max_wait_seconds, check_interval, max_startup_wait)
+
         if ci_result == "failed":
             failed_ci.append(str(pr_number))
             continue
         elif ci_result == "timeout":
             timeout.append(str(pr_number))
+            continue
+        elif ci_result == "startup_timeout":
+            startup_timeout.append(str(pr_number))
             continue
         
         # Step 4: Merge the PR
@@ -242,6 +319,7 @@ def main():
     set_github_output("failed_ci", ",".join(failed_ci))
     set_github_output("timeout", ",".join(timeout))
     set_github_output("failed_merge", ",".join(failed_merge))
+    set_github_output("startup_timeout", ",".join(startup_timeout))
     
     # Print summary
     print(f"\n=== Merge Summary ===")
@@ -249,7 +327,8 @@ def main():
     print(f"Successfully merged: {len(merged)} - {merged}")
     print(f"Failed to update: {len(failed_update)} - {failed_update}")
     print(f"Failed CI: {len(failed_ci)} - {failed_ci}")
-    print(f"Timed out: {len(timeout)} - {timeout}")
+    print(f"CI execution timed out: {len(timeout)} - {timeout}")
+    print(f"CI startup timed out: {len(startup_timeout)} - {startup_timeout}")
     print(f"Failed to merge: {len(failed_merge)} - {failed_merge}")
     
     return 0
