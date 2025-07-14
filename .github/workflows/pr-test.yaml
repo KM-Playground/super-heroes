@@ -88,8 +88,8 @@ jobs:
 
       - name: Random delay
         run: |
-          # Generate random number between 1 and 45
-          DELAY=$((RANDOM % 45 + 1))
+          # Generate random number between 10 and 45
+          DELAY=$((RANDOM % 45 + 10))
           echo "Sleeping for $DELAY seconds..."
           sleep $DELAY
           echo "Sleep completed"
