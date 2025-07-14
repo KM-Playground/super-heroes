@@ -8,4 +8,8 @@ public class App {
         System.out.println("Avengers.. assemble");
 	System.out.println("Hulk..smash");
     }
+
+    public static void greeting() {
+	//Some dummy implementation
+    }
 }
