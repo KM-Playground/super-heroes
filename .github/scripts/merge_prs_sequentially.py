@@ -204,19 +204,107 @@ def is_release_branch(pr_number: int) -> bool:
         return False
 
 
-def merge_pr(pr_number: int) -> bool:
+def get_pr_branch_name(pr_number: int) -> str:
+    """Get the branch name for a PR."""
+    success, stdout, stderr = run_gh_command(["pr", "view", str(pr_number), "--json", "headRefName"], check=False)
+    if not success:
+        print(f"⚠️ Could not get branch name for PR #{pr_number}")
+        return ""
+
+    try:
+        pr_data = json.loads(stdout)
+        return pr_data.get("headRefName", "")
+    except (json.JSONDecodeError, KeyError):
+        print(f"⚠️ Could not parse branch name for PR #{pr_number}")
+        return ""
+
+
+def wait_for_workflows_to_complete(pr_number: int, branch_name: str, max_wait: int = 300) -> bool:
+    """
+    Wait for any remaining workflows on the branch to complete after merge.
+
+    Args:
+        pr_number: The PR number
+        branch_name: The branch name to monitor
+        max_wait: Maximum seconds to wait (default: 5 minutes)
+
+    Returns:
+        True if workflows completed or no workflows found, False if timeout
+    """
+    if not branch_name:
+        return True
+
+    print(f"⏳ Waiting for any remaining workflows on branch '{branch_name}' to complete...")
+
+    wait_time = 0
+    check_interval = 10
+
+    while wait_time < max_wait:
+        # Check if there are any running workflows on this branch
+        success, stdout, stderr = run_gh_command([
+            "run", "list",
+            "--branch", branch_name,
+            "--status", "in_progress",
+            "--json", "status,conclusion,workflowName"
+        ], check=False)
+
+        if success:
+            try:
+                workflows = json.loads(stdout)
+                if not workflows:
+                    print(f"✅ No running workflows found on branch '{branch_name}'")
+                    return True
+
+                print(f"⏳ Found {len(workflows)} running workflow(s) on branch '{branch_name}', waiting {check_interval}s...")
+                for workflow in workflows:
+                    workflow_name = workflow.get("workflowName", "unknown")
+                    print(f"  - {workflow_name}: {workflow.get('status', 'unknown')}")
+
+            except (json.JSONDecodeError, KeyError):
+                print(f"⚠️ Could not parse workflow status, assuming workflows are complete")
+                return True
+        else:
+            print(f"⚠️ Could not check workflow status, assuming workflows are complete")
+            return True
+
+        time.sleep(check_interval)
+        wait_time += check_interval
+
+    print(f"⏰ Timeout waiting for workflows to complete on branch '{branch_name}' after {max_wait}s")
+    return False
+
+
+def delete_branch_after_merge(branch_name: str) -> bool:
+    """Delete a branch after merge."""
+    if not branch_name:
+        return False
+
+    print(f"🗑️ Deleting branch '{branch_name}'...")
+    success, stdout, stderr = run_gh_command(["api", "-X", "DELETE", f"/repos/:owner/:repo/git/refs/heads/{branch_name}"], check=False)
+
+    if not success:
+        print(f"⚠️ Failed to delete branch '{branch_name}'")
+        if stderr:
+            print(f"Error: {stderr}")
+        return False
+
+    print(f"✅ Successfully deleted branch '{branch_name}'")
+    return True
+
+
+def merge_pr(pr_number: int, workflow_cleanup_wait: int = 300) -> bool:
     """Merge a PR using squash merge."""
     print(f"Merging PR #{pr_number} with squash...")
 
-    # # Check if this is a release branch to determine if we should delete it
-    delete_branch = not is_release_branch(pr_number)
+    # Get branch name before merging (needed for cleanup)
+    branch_name = get_pr_branch_name(pr_number)
 
+    # Check if this is a release branch to determine if we should delete it later
+    should_delete_branch = not is_release_branch(pr_number)
+
+    # Always merge without deleting branch initially to avoid workflow failures
     merge_args = ["pr", "merge", str(pr_number), "--squash", "--admin"]
-    if delete_branch:
-        merge_args.append("--delete-branch")
-        print(f"Will delete branch after merge (feature branch)")
-    else:
-        print(f"Will keep branch after merge (release branch)")
+    print(f"Merging without immediate branch deletion to allow workflows to complete...")
 
     success, stdout, stderr = run_gh_command(merge_args, check=False)
 
@@ -227,6 +315,19 @@ def merge_pr(pr_number: int) -> bool:
         return False
 
     print(f"✅ Successfully merged PR #{pr_number}")
+
+    # If it's a feature branch, wait for workflows to complete then delete the branch
+    if should_delete_branch and branch_name:
+        print(f"Feature branch detected, will delete '{branch_name}' after workflows complete...")
+
+        # Wait for any remaining workflows to complete
+        if wait_for_workflows_to_complete(pr_number, branch_name, workflow_cleanup_wait):
+            delete_branch_after_merge(branch_name)
+        else:
+            print(f"⚠️ Workflows did not complete in time, leaving branch '{branch_name}' for manual cleanup")
+    else:
+        print(f"Release branch detected, keeping branch '{branch_name}'")
+
     return True
 
 
@@ -248,13 +349,15 @@ def main():
     max_wait_seconds = int(get_env_var("MAX_WAIT_SECONDS", "2700"))  # 45 minutes
     check_interval = int(get_env_var("CHECK_INTERVAL", "30"))  # 30 seconds
     max_startup_wait = int(get_env_var("MAX_STARTUP_WAIT", "300"))  # 5 minutes
-    
+    workflow_cleanup_wait = int(get_env_var("WORKFLOW_CLEANUP_WAIT", "300"))  # 5 minutes
+
     print("=== DEBUG: Merge Job Started ===")
     print(f"Mergeable PRs JSON: {mergeable_prs_json}")
     print(f"Default branch: {default_branch}")
     print(f"Max wait time: {max_wait_seconds}s")
     print(f"Check interval: {check_interval}s")
     print(f"Max startup wait: {max_startup_wait}s")
+    print(f"Workflow cleanup wait: {workflow_cleanup_wait}s")
     print("================================")
     
     # Parse and sort PRs
@@ -306,7 +409,7 @@ def main():
             continue
         
         # Step 4: Merge the PR
-        if merge_pr(pr_number):
+        if merge_pr(pr_number, workflow_cleanup_wait):
             merged.append(str(pr_number))
             # Wait for merge to complete before processing next PR
             time.sleep(10)
