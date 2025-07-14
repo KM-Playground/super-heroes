@@ -1,7 +1,7 @@
 package org.avengers;
 
 /**
- * Hello world!
+ * Hello world! Some dummy changes
  */
 public class App {
     public static void main(String[] args) {
