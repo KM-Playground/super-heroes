@@ -18,7 +18,7 @@ jobs:
     # Only run if comment is "Ok to test" and it's on a PR (not an issue)
     if: >
       github.event.comment.body &&
-      contains(fromJSON('["ok to test"]'), github.event.comment.body) &&
+      contains(fromJSON('["Ok to test"]'), github.event.comment.body) &&
       github.event.issue.pull_request != null
     steps:
       - name: Checkout repository
