@@ -64,18 +64,20 @@ def trigger_ci(pr_number: int) -> bool:
     return True
 
 
-def wait_for_ci_to_start(pr_number: int, max_startup_wait: int = 300) -> bool:
+def wait_for_ci_to_start(pr_number: int, max_startup_wait: int = 300, required_check: str = "run-tests") -> bool:
     """
     Wait for CI workflow to start and register status checks.
 
     Args:
         pr_number: The PR number to monitor
         max_startup_wait: Maximum seconds to wait for CI to start (default: 5 minutes)
+        required_check: The name of the required CI check context (default: "run-tests")
 
     Returns:
         True if CI started (status checks detected), False if timeout
     """
     print(f"⏳ Waiting for CI workflow to start for PR #{pr_number}...")
+    print(f"Looking for required CI check: '{required_check}'")
 
     wait_time = 0
     check_intervals = [5, 5, 10, 10, 15, 15, 30, 30]  # Progressive intervals
@@ -93,9 +95,22 @@ def wait_for_ci_to_start(pr_number: int, max_startup_wait: int = 300) -> bool:
                 status_info = json.loads(stdout)
                 checks = status_info.get("statusCheckRollup", [])
 
-                if checks:
-                    print(f"✅ CI workflow started for PR #{pr_number} (detected {len(checks)} status check(s))")
+                # Look for our specific required check
+                found_required_check = False
+                for check in checks:
+                    context = check.get("context", "")
+                    if required_check in context:
+                        found_required_check = True
+                        print(f"✅ Found required CI check '{required_check}' for PR #{pr_number}")
+                        break
+
+                if found_required_check:
+                    print(f"✅ CI workflow started for PR #{pr_number} (detected required check '{required_check}')")
                     return True
+                elif checks:
+                    # We have some checks but not the one we're waiting for
+                    check_names = [check.get("context", "unknown") for check in checks]
+                    print(f"⏳ Found {len(checks)} check(s) but not '{required_check}' yet: {', '.join(check_names)}")
 
             except (json.JSONDecodeError, KeyError):
                 pass  # Continue waiting
@@ -109,7 +124,7 @@ def wait_for_ci_to_start(pr_number: int, max_startup_wait: int = 300) -> bool:
     return False
 
 
-def get_pr_status_checks(pr_number: int) -> Tuple[int, int]:
+def get_pr_status_checks(pr_number: int, required_check: str = "run-tests") -> Tuple[int, int]:
     """Get the count of pending and failed status checks for a PR."""
     success, stdout, stderr = run_gh_command(["pr", "view", str(pr_number), "--json", "statusCheckRollup"], check=False)
 
@@ -138,13 +153,25 @@ def get_pr_status_checks(pr_number: int) -> Tuple[int, int]:
 
         print(f"📈 Summary: {pending_count} pending, {failed_count} failed, {success_count} passed")
 
+        # If no checks exist at all, we should treat this as "pending" until CI starts
+        if not checks:
+            print("⚠️ No status checks found - treating as pending until CI registers")
+            return 1, 0  # Return 1 pending to indicate we're still waiting
+
+        # Check if we have the specific required check
+        has_required_check = any(required_check in check.get("context", "") for check in checks)
+
+        if not has_required_check:
+            print(f"⚠️ Required check '{required_check}' not found - treating as pending")
+            return 1, 0  # Return 1 pending to indicate we're still waiting for the right check
+
         return pending_count, failed_count
     except (json.JSONDecodeError, KeyError) as e:
         print(f"⚠️ Error parsing status checks for PR #{pr_number}: {e}")
         return 0, 1  # Assume failure if we can't parse
 
 
-def wait_for_ci(pr_number: int, max_wait_seconds: int = 2700, check_interval: int = 30, max_startup_wait: int = 300) -> str:
+def wait_for_ci(pr_number: int, max_wait_seconds: int = 2700, check_interval: int = 30, max_startup_wait: int = 300, required_check: str = "run-tests") -> str:
     """
     Wait for CI to complete on a PR.
 
@@ -161,14 +188,14 @@ def wait_for_ci(pr_number: int, max_wait_seconds: int = 2700, check_interval: in
         "startup_timeout" - CI never started
     """
     # First, wait for CI to start
-    if not wait_for_ci_to_start(pr_number, max_startup_wait):
+    if not wait_for_ci_to_start(pr_number, max_startup_wait, required_check):
         return "startup_timeout"
 
     print(f"🔄 Monitoring CI execution for PR #{pr_number}...")
     wait_time = 0
 
     while wait_time < max_wait_seconds:
-        pending_checks, failed_checks = get_pr_status_checks(pr_number)
+        pending_checks, failed_checks = get_pr_status_checks(pr_number, required_check)
 
         if pending_checks == 0:
             if failed_checks == 0:
@@ -350,6 +377,7 @@ def main():
     check_interval = int(get_env_var("CHECK_INTERVAL", "30"))  # 30 seconds
     max_startup_wait = int(get_env_var("MAX_STARTUP_WAIT", "300"))  # 5 minutes
     workflow_cleanup_wait = int(get_env_var("WORKFLOW_CLEANUP_WAIT", "300"))  # 5 minutes
+    required_check = get_env_var("REQUIRED_CI_CHECK", "run-tests")  # Default to "run-tests"
 
     print("=== DEBUG: Merge Job Started ===")
     print(f"Mergeable PRs JSON: {mergeable_prs_json}")
@@ -358,6 +386,7 @@ def main():
     print(f"Check interval: {check_interval}s")
     print(f"Max startup wait: {max_startup_wait}s")
     print(f"Workflow cleanup wait: {workflow_cleanup_wait}s")
+    print(f"Required CI check: {required_check}")
     print("================================")
     
     # Parse and sort PRs
@@ -396,7 +425,7 @@ def main():
 
         # Step 3: Wait for CI to complete
         print(f"🔄 Starting CI monitoring for PR #{pr_number}...")
-        ci_result = wait_for_ci(pr_number, max_wait_seconds, check_interval, max_startup_wait)
+        ci_result = wait_for_ci(pr_number, max_wait_seconds, check_interval, max_startup_wait, required_check)
 
         if ci_result == "failed":
             failed_ci.append(str(pr_number))

@@ -21,6 +21,10 @@ on:
       required_approvals:
         description: 'Number of required approvals (leave empty to auto-detect from branch protection)'
         required: false
+      required_ci_check:
+        description: 'Name of the required CI status check context (default: run-tests)'
+        required: false
+        default: 'run-tests'
 
 jobs:
 
@@ -154,6 +158,8 @@ jobs:
           MAX_WAIT_SECONDS: "2700"  # 45 minutes
           CHECK_INTERVAL: "30"      # 30 seconds
           MAX_STARTUP_WAIT: "300"   # 5 minutes (configurable for different CI environments)
+          REQUIRED_CI_CHECK: ${{ github.event.inputs.required_ci_check || 'run-tests' }}
+          REQUIRED_CI_CHECK: ${{ github.event.inputs.required_ci_check || 'run-tests' }}
         run: |
           python3 -u .github/scripts/merge_prs_sequentially.py
 
