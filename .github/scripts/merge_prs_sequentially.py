@@ -180,6 +180,7 @@ def wait_for_ci(pr_number: int, max_wait_seconds: int = 2700, check_interval: in
         max_wait_seconds: Maximum seconds to wait for CI completion (default: 45 minutes)
         check_interval: Seconds between status checks during CI execution (default: 30s)
         max_startup_wait: Maximum seconds to wait for CI to start (default: 5 minutes)
+        required_check: The name of the required CI check context (default: "run-tests")
 
     Returns:
         "success" - All checks passed
@@ -246,12 +247,11 @@ def get_pr_branch_name(pr_number: int) -> str:
         return ""
 
 
-def wait_for_workflows_to_complete(pr_number: int, branch_name: str, max_wait: int = 300) -> bool:
+def wait_for_workflows_to_complete(branch_name: str, max_wait: int = 300) -> bool:
     """
     Wait for any remaining workflows on the branch to complete after merge.
 
     Args:
-        pr_number: The PR number
         branch_name: The branch name to monitor
         max_wait: Maximum seconds to wait (default: 5 minutes)
 
@@ -348,7 +348,7 @@ def merge_pr(pr_number: int, workflow_cleanup_wait: int = 300) -> bool:
         print(f"Feature branch detected, will delete '{branch_name}' after workflows complete...")
 
         # Wait for any remaining workflows to complete
-        if wait_for_workflows_to_complete(pr_number, branch_name, workflow_cleanup_wait):
+        if wait_for_workflows_to_complete(branch_name, workflow_cleanup_wait):
             delete_branch_after_merge(branch_name)
         else:
             print(f"⚠️ Workflows did not complete in time, leaving branch '{branch_name}' for manual cleanup")
