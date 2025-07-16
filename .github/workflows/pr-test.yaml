@@ -6,6 +6,8 @@ name: PR Test Runner
 on:
   issue_comment:
     types: [created]
+env:
+  GH_TOKEN: ${{ github.token }}
 
 jobs:
   run-tests:
