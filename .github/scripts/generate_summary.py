@@ -9,7 +9,7 @@ import sys
 import json
 from datetime import datetime
 
-from gh_utils import get_pr_author, comment_on_pr, update_pr_branch
+from gh_utils import get_pr_author, comment_on_pr, update_pr_branch, run_gh_command
 
 
 def parse_environment_data():
@@ -205,27 +205,94 @@ def update_prs_with_default_branch(prs_to_update, default_branch):
         update_pr_branch(str(pr_number))
 
 
+def find_or_create_commentary_issue():
+    """Find existing 'Merge Queue Commentary' issue or create one"""
+    try:
+        # Search for existing issue with title and label
+        print("Searching for existing 'Merge Queue Commentary' issue...")
+        result = run_gh_command([
+            'issue', 'list',
+            '--label', 'commentary',
+            '--state', 'open',
+            '--search', 'Merge Queue Commentary in:title',
+            '--json', 'number,title'
+        ])
+
+        issues = json.loads(result)
+
+        # Check if we found the exact issue
+        for issue in issues:
+            if issue['title'] == 'Merge Queue Commentary':
+                print(f"Found existing commentary issue #{issue['number']}")
+                return issue['number']
+
+        # Issue not found, create it
+        print("Commentary issue not found, creating new one...")
+        result = run_gh_command([
+            'issue', 'create',
+            '--title', 'Merge Queue Commentary',
+            '--body', 'This issue tracks automated PR merge queue execution summaries.',
+            '--label', 'commentary'
+        ])
+
+        # Extract issue number from the created issue URL
+        # Format: https://github.com/owner/repo/issues/123
+        issue_url = result.strip()
+        issue_number = issue_url.split('/')[-1]
+        print(f"Created new commentary issue #{issue_number}")
+        return int(issue_number)
+
+    except Exception as e:
+        print(f"Error finding/creating commentary issue: {e}", file=sys.stderr)
+        raise
+
+
+def add_summary_comment(issue_number, summary):
+    """Add summary as comment to the commentary issue"""
+    try:
+        print(f"Adding summary comment to issue #{issue_number}...")
+
+        # Add timestamp and format the comment
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')
+        comment_body = f"## Workflow Execution - {timestamp}\n\n{summary}"
+
+        run_gh_command([
+            'issue', 'comment', str(issue_number),
+            '--body', comment_body
+        ])
+
+        print(f"Successfully added summary comment to issue #{issue_number}")
+
+    except Exception as e:
+        print(f"Error adding comment to issue #{issue_number}: {e}", file=sys.stderr)
+        raise
+
+
 def main():
     """Main execution"""
     try:
         # Parse environment data
         data = parse_environment_data()
-        
+
         # Display summary
         summary = generate_summary(data)
         print("=" * 50)
         print(summary)
         print("=" * 50)
-        
+
+        # Add summary to commentary issue
+        issue_number = find_or_create_commentary_issue()
+        add_summary_comment(issue_number, summary)
+
         # Comment on failed PRs
         comment_on_failed_prs(data)
-        
+
         # Update PRs with default branch (for CI failures, timeouts, and merge failures)
         prs_to_update = data['failed_ci'] + data['timeout'] + data['startup_timeout'] + data['failed_merge']
         update_prs_with_default_branch(prs_to_update, data['default_branch'])
-        
+
         print("PR notifications and updates completed successfully")
-        
+
     except Exception as e:
         print(f"Failed to process PR notifications: {e}", file=sys.stderr)
         sys.exit(1)
