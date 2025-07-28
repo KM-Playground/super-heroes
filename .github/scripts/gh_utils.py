@@ -10,10 +10,16 @@ import subprocess
 from typing import List, Tuple
 
 
-def get_env_var(name: str, default: str = "") -> str:
+def get_env_var(name: str, default: str = None) -> str:
     """Get environment variable with optional default."""
     import os
-    return os.environ.get(name, default)
+    value = os.environ.get(name)
+    if value is None:
+        if default is not None:
+            return default
+        else:
+            raise ValueError(f"Required environment variable '{name}' is not set")
+    return value
 
 
 def run_gh_command(args: List[str], check: bool = True) -> Tuple[bool, str, str]:

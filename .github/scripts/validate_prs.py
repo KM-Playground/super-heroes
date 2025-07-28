@@ -176,12 +176,12 @@ def set_github_output(name: str, value: str):
 
 def main():
     """Main function to validate PRs."""
-    # Get environment variables
-    pr_numbers_str = get_env_var("PR_NUMBERS", "")
-    manual_approvals = get_env_var("REQUIRED_APPROVALS", "")
-    repository = get_env_var("REPOSITORY", "")
-    default_branch = get_env_var("DEFAULT_BRANCH", "main")
-    release_pr = get_env_var("RELEASE_PR", "")
+    # Get environment variables - no defaults, must be set
+    pr_numbers_str = get_env_var("PR_NUMBERS")
+    manual_approvals = get_env_var("REQUIRED_APPROVALS")
+    repository = get_env_var("REPOSITORY")
+    default_branch = get_env_var("DEFAULT_BRANCH")
+    release_pr = get_env_var("RELEASE_PR")
     
     print("=== DEBUG: All Variables ===")
     print(f"Repository: {repository}")

@@ -59,11 +59,11 @@ Please check the PR status and try again in the next merge cycle."""
 
 def main():
     """Main function to process unmergeable PRs."""
-    # Get environment variables
-    initial_unmergeable_json = get_env_var("INITIAL_UNMERGEABLE_PRS", "[]")
-    failed_merge_csv = get_env_var("FAILED_MERGE_PRS", "")
-    required_approvals = get_env_var("REQUIRED_APPROVALS", "1")
-    default_branch = get_env_var("DEFAULT_BRANCH", "main")
+    # Get environment variables - no defaults, must be set
+    initial_unmergeable_json = get_env_var("INITIAL_UNMERGEABLE_PRS")
+    failed_merge_csv = get_env_var("FAILED_MERGE_PRS")
+    required_approvals = get_env_var("REQUIRED_APPROVALS")
+    default_branch = get_env_var("DEFAULT_BRANCH")
     
     print("=== Processing Unmergeable PRs ===")
     print(f"Initial unmergeable PRs: {initial_unmergeable_json}")
