@@ -305,6 +305,29 @@ def merge_pr(pr_number: int) -> bool:
   """Merge a PR using squash merge and delete branch if it's a feature branch."""
   print(f"Merging PR #{pr_number} with squash...")
 
+  # First, check if PR is still mergeable
+  success, stdout, stderr = run_gh_command([
+    "pr", "view", str(pr_number), "--json", "mergeable,state"
+  ], check=False)
+
+  if success:
+    try:
+      pr_data = json.loads(stdout)
+      mergeable = pr_data.get("mergeable", "")
+      state = pr_data.get("state", "")
+
+      if state != "OPEN":
+        print(f"⚠️ PR #{pr_number} is not open (state: {state})")
+        return False
+
+      if mergeable == "CONFLICTING":
+        print(f"⚠️ PR #{pr_number} has merge conflicts (mergeable: {mergeable})")
+        return False
+
+    except (json.JSONDecodeError, KeyError) as e:
+      print(f"⚠️ Could not parse PR status for #{pr_number}: {e}")
+      # Continue with merge attempt anyway
+
   # Check if this is a release branch to determine if we should delete it later
   should_delete_branch = not is_release_branch(pr_number)
 
@@ -322,10 +345,35 @@ def merge_pr(pr_number: int) -> bool:
     print(f"⚠️ Failed to merge PR #{pr_number}")
     if stderr:
       print(f"Error: {stderr}")
+    if stdout:
+      print(f"Output: {stdout}")
     return False
 
-  print(f"✅ Successfully merged PR #{pr_number}")
-  return True
+  # Additional check: verify the merge was actually successful
+  # Sometimes gh pr merge returns success but the PR is still open due to conflicts
+  success, stdout, stderr = run_gh_command([
+    "pr", "view", str(pr_number), "--json", "state"
+  ], check=False)
+
+  if success:
+    try:
+      pr_data = json.loads(stdout)
+      final_state = pr_data.get("state", "")
+      if final_state == "MERGED":
+        print(f"✅ Successfully merged PR #{pr_number}")
+        return True
+      else:
+        print(f"⚠️ PR #{pr_number} merge command succeeded but PR is still {final_state}")
+        return False
+    except (json.JSONDecodeError, KeyError) as e:
+      print(f"⚠️ Could not verify merge status for PR #{pr_number}: {e}")
+      # Assume success if we can't verify
+      print(f"✅ Merge command succeeded for PR #{pr_number} (could not verify final state)")
+      return True
+  else:
+    # Assume success if we can't check the final state
+    print(f"✅ Merge command succeeded for PR #{pr_number} (could not check final state)")
+    return True
 
 
 def set_github_output(name: str, value: str):

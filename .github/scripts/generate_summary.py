@@ -210,7 +210,7 @@ def find_or_create_commentary_issue():
     try:
         # Search for existing issue with title and label
         print("Searching for existing 'Merge Queue Commentary' issue...")
-        success, stdout, stderr = run_gh_command([
+        result = run_gh_command([
             'issue', 'list',
             '--label', 'commentary',
             '--state', 'open',
@@ -218,10 +218,10 @@ def find_or_create_commentary_issue():
             '--json', 'number,title'
         ])
 
-        if not success:
-            raise Exception(f"Failed to search for issues: {stderr}")
+        if not result[0]:
+            raise Exception(f"Failed to search for issues: {result[2]}")
 
-        issues = json.loads(stdout)
+        issues = json.loads(result[1])
 
         # Check if we found the exact issue
         for issue in issues:
@@ -231,19 +231,38 @@ def find_or_create_commentary_issue():
 
         # Issue not found, create it
         print("Commentary issue not found, creating new one...")
-        success, stdout, stderr = run_gh_command([
+
+        # First, ensure the 'commentary' label exists
+        print("Ensuring 'commentary' label exists...")
+        label_result = run_gh_command([
+            'label', 'create', 'commentary',
+            '--description', 'Issues for automated workflow commentary',
+            '--color', '0366d6'
+        ])
+
+        if not label_result[0]:
+            # Label might already exist, check if that's the case
+            if 'already exists' not in label_result[2].lower():
+                print(f"Warning: Could not create 'commentary' label: {label_result[2]}")
+            else:
+                print("Label 'commentary' already exists")
+        else:
+            print("Created 'commentary' label")
+
+        # Now create the issue
+        result = run_gh_command([
             'issue', 'create',
             '--title', 'Merge Queue Commentary',
             '--body', 'This issue tracks automated PR merge queue execution summaries.',
             '--label', 'commentary'
         ])
 
-        if not success:
-            raise Exception(f"Failed to create issue: {stderr}")
+        if not result[0]:
+            raise Exception(f"Failed to create issue: {result[2]}")
 
         # Extract issue number from the created issue URL
         # Format: https://github.com/owner/repo/issues/123
-        issue_url = stdout.strip()
+        issue_url = result[1].strip()
         issue_number = issue_url.split('/')[-1]
         print(f"Created new commentary issue #{issue_number}")
         return int(issue_number)
@@ -262,13 +281,13 @@ def add_summary_comment(issue_number, summary):
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')
         comment_body = f"## Workflow Execution - {timestamp}\n\n{summary}"
 
-        success, stdout, stderr = run_gh_command([
+        result = run_gh_command([
             'issue', 'comment', str(issue_number),
             '--body', comment_body
         ])
 
-        if not success:
-            raise Exception(f"Failed to add comment: {stderr}")
+        if not result[0]:
+            raise Exception(f"Failed to add comment: {result[2]}")
 
         print(f"Successfully added summary comment to issue #{issue_number}")
 
