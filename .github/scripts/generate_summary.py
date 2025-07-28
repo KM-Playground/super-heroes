@@ -210,7 +210,7 @@ def find_or_create_commentary_issue():
     try:
         # Search for existing issue with title and label
         print("Searching for existing 'Merge Queue Commentary' issue...")
-        result = run_gh_command([
+        success, stdout, stderr = run_gh_command([
             'issue', 'list',
             '--label', 'commentary',
             '--state', 'open',
@@ -218,7 +218,10 @@ def find_or_create_commentary_issue():
             '--json', 'number,title'
         ])
 
-        issues = json.loads(result)
+        if not success:
+            raise Exception(f"Failed to search for issues: {stderr}")
+
+        issues = json.loads(stdout)
 
         # Check if we found the exact issue
         for issue in issues:
@@ -228,16 +231,19 @@ def find_or_create_commentary_issue():
 
         # Issue not found, create it
         print("Commentary issue not found, creating new one...")
-        result = run_gh_command([
+        success, stdout, stderr = run_gh_command([
             'issue', 'create',
             '--title', 'Merge Queue Commentary',
             '--body', 'This issue tracks automated PR merge queue execution summaries.',
             '--label', 'commentary'
         ])
 
+        if not success:
+            raise Exception(f"Failed to create issue: {stderr}")
+
         # Extract issue number from the created issue URL
         # Format: https://github.com/owner/repo/issues/123
-        issue_url = result.strip()
+        issue_url = stdout.strip()
         issue_number = issue_url.split('/')[-1]
         print(f"Created new commentary issue #{issue_number}")
         return int(issue_number)
@@ -256,10 +262,13 @@ def add_summary_comment(issue_number, summary):
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')
         comment_body = f"## Workflow Execution - {timestamp}\n\n{summary}"
 
-        run_gh_command([
+        success, stdout, stderr = run_gh_command([
             'issue', 'comment', str(issue_number),
             '--body', comment_body
         ])
+
+        if not success:
+            raise Exception(f"Failed to add comment: {stderr}")
 
         print(f"Successfully added summary comment to issue #{issue_number}")
 
