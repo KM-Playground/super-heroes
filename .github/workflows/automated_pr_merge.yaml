@@ -189,6 +189,9 @@ jobs:
     needs: [validate-prs, merge-approved]
     runs-on: ubuntu-latest
     if: always()
+    permissions:
+      contents: read
+      issues: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
