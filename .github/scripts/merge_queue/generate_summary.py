@@ -9,7 +9,7 @@ import sys
 import json
 from datetime import datetime
 
-from gh_utils import get_pr_author, comment_on_pr, update_pr_branch, run_gh_command
+from ..common.gh_utils import GitHubUtils
 
 
 def parse_environment_data():
@@ -87,7 +87,8 @@ def generate_summary_with_authors(data):
 
     if data['unmergeable']:
         for pr in data['unmergeable']:
-            author = get_pr_author(str(pr))
+            author_result = GitHubUtils.get_pr_author(str(pr))
+            author = author_result.message
             summary += f"\n- PR #{pr} (@{author}) - insufficient approvals, failing checks, or not targeting {data['default_branch']}"
     else:
         summary += "- None"
@@ -99,7 +100,8 @@ def generate_summary_with_authors(data):
 
     if data['failed_update']:
         for pr in data['failed_update']:
-            author = get_pr_author(str(pr))
+            author_result = GitHubUtils.get_pr_author(str(pr))
+            author = author_result.message
             summary += f"\n- PR #{pr} (@{author}) - could not update branch with {data['default_branch']}"
     else:
         summary += "- None"
@@ -111,7 +113,8 @@ def generate_summary_with_authors(data):
 
     if data['failed_ci']:
         for pr in data['failed_ci']:
-            author = get_pr_author(str(pr))
+            author_result = GitHubUtils.get_pr_author(str(pr))
+            author = author_result.message
             summary += f"\n- PR #{pr} (@{author}) - CI checks failed after update"
     else:
         summary += "- None"
@@ -123,7 +126,8 @@ def generate_summary_with_authors(data):
 
     if data['timeout']:
         for pr in data['timeout']:
-            author = get_pr_author(str(pr))
+            author_result = GitHubUtils.get_pr_author(str(pr))
+            author = author_result.message
             summary += f"\n- PR #{pr} (@{author}) - CI did not complete within 45 minutes"
     else:
         summary += "- None"
@@ -135,7 +139,8 @@ def generate_summary_with_authors(data):
 
     if data['startup_timeout']:
         for pr in data['startup_timeout']:
-            author = get_pr_author(str(pr))
+            author_result = GitHubUtils.get_pr_author(str(pr))
+            author = author_result.message
             summary += f"\n- PR #{pr} (@{author}) - CI workflow did not start within 5 minutes"
     else:
         summary += "- None"
@@ -147,7 +152,8 @@ def generate_summary_with_authors(data):
 
     if data['failed_merge']:
         for pr in data['failed_merge']:
-            author = get_pr_author(str(pr))
+            author_result = GitHubUtils.get_pr_author(str(pr))
+            author = author_result.message
             summary += f"\n- PR #{pr} (@{author}) - merge command failed (likely merge conflicts)"
     else:
         summary += "- None"
@@ -199,13 +205,14 @@ def comment_on_failed_prs(data):
             print(f"Commenting on PR #{pr_number} for {category} failure...")
             
             # Get PR author
-            author = get_pr_author(pr_number)
-            
+            author_result = GitHubUtils.get_pr_author(pr_number)
+            author = author_result.message
+
             # Build complete message
             message = f"@{author}, {failure_messages[category]}"
-            
+
             # Comment on PR using shared utility
-            comment_on_pr(str(pr_number), message)
+            GitHubUtils.comment_on_pr(str(pr_number), message)
 
 
 def update_prs_with_default_branch(prs_to_update, default_branch):
@@ -217,7 +224,7 @@ def update_prs_with_default_branch(prs_to_update, default_branch):
 
     for pr_number in prs_to_update:
         print(f"Updating PR #{pr_number} with {default_branch}...")
-        update_pr_branch(str(pr_number))
+        GitHubUtils.update_pr_branch(str(pr_number))
 
 
 def find_or_create_commentary_issue():
@@ -225,18 +232,17 @@ def find_or_create_commentary_issue():
     try:
         # Search for existing issue with title and label
         print("Searching for existing 'Merge Queue Commentary' issue...")
-        result = run_gh_command([
-            'issue', 'list',
-            '--label', 'commentary',
-            '--state', 'open',
-            '--search', 'Merge Queue Commentary in:title',
-            '--json', 'number,title'
-        ])
+        result = GitHubUtils.search_issue(
+            label='commentary',
+            state='open',
+            search='Merge Queue Commentary in:title',
+            json_fields='number,title'
+        )
 
-        if not result[0]:
-            raise Exception(f"Failed to search for issues: {result[2]}")
+        if not result.success:
+            raise Exception(f"Failed to search for issues: {result.stderr}")
 
-        issues = json.loads(result[1])
+        issues = json.loads(result.stdout)
 
         # Check if we found the exact issue
         for issue in issues:
@@ -249,35 +255,27 @@ def find_or_create_commentary_issue():
 
         # First, ensure the 'commentary' label exists
         print("Ensuring 'commentary' label exists...")
-        label_result = run_gh_command([
-            'label', 'create', 'commentary',
-            '--description', 'Issues for automated workflow commentary',
-            '--color', '0366d6'
-        ])
-
-        if not label_result[0]:
-            # Label might already exist, check if that's the case
-            if 'already exists' not in label_result[2].lower():
-                print(f"Warning: Could not create 'commentary' label: {label_result[2]}")
-            else:
-                print("Label 'commentary' already exists")
-        else:
-            print("Created 'commentary' label")
+        label_result = GitHubUtils.create_label(
+            'commentary',
+            'Issues for automated workflow commentary',
+            '0366d6'
+        )
+        if not label_result.success:
+            raise Exception(f"Failed to create label: {label_result.error_details}")
 
         # Now create the issue
-        result = run_gh_command([
-            'issue', 'create',
-            '--title', 'Merge Queue Commentary',
-            '--body', 'This issue tracks automated PR merge queue execution summaries.',
-            '--label', 'commentary'
-        ])
+        result = GitHubUtils.create_issue(
+            'Merge Queue Commentary',
+            'This issue tracks automated PR merge queue execution summaries.',
+            'commentary'
+        )
 
-        if not result[0]:
-            raise Exception(f"Failed to create issue: {result[2]}")
+        if not result.success:
+            raise Exception(f"Failed to create issue: {result.stderr}")
 
         # Extract issue number from the created issue URL
         # Format: https://github.com/owner/repo/issues/123
-        issue_url = result[1].strip()
+        issue_url = result.stdout.strip()
         issue_number = issue_url.split('/')[-1]
         print(f"Created new commentary issue #{issue_number}")
         return int(issue_number)
@@ -296,13 +294,10 @@ def add_summary_comment(issue_number, summary):
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')
         comment_body = f"## Workflow Execution - {timestamp}\n\n{summary}"
 
-        result = run_gh_command([
-            'issue', 'comment', str(issue_number),
-            '--body', comment_body
-        ])
+        result = GitHubUtils.add_comment(str(issue_number), comment_body)
 
-        if not result[0]:
-            raise Exception(f"Failed to add comment: {result[2]}")
+        if not result.success:
+            raise Exception(f"Failed to add comment: {result.error_details}")
 
         print(f"Successfully added summary comment to issue #{issue_number}")
 

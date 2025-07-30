@@ -10,7 +10,7 @@ import json
 import sys
 from typing import List
 
-from gh_utils import get_env_var, get_pr_author, comment_on_pr
+from ..common.gh_utils import GitHubUtils
 
 
 def parse_json_array(json_str: str) -> List[str]:
@@ -62,10 +62,10 @@ def generate_merge_failure_message(author: str) -> str:
 def main():
     """Main function to process unmergeable PRs."""
     # Get environment variables - no defaults, must be set
-    initial_unmergeable_json = get_env_var("INITIAL_UNMERGEABLE_PRS")
-    failed_merge_csv = get_env_var("FAILED_MERGE_PRS")
-    required_approvals = get_env_var("REQUIRED_APPROVALS")
-    default_branch = get_env_var("DEFAULT_BRANCH")
+    initial_unmergeable_json = GitHubUtils.get_env_var("INITIAL_UNMERGEABLE_PRS")
+    failed_merge_csv = GitHubUtils.get_env_var("FAILED_MERGE_PRS")
+    required_approvals = GitHubUtils.get_env_var("REQUIRED_APPROVALS")
+    default_branch = GitHubUtils.get_env_var("DEFAULT_BRANCH")
     
     print("=== Processing Unmergeable PRs ===")
     print(f"Initial unmergeable PRs: {initial_unmergeable_json}")
@@ -98,8 +98,9 @@ def main():
         print(f"\nProcessing PR #{pr_number}...")
         
         # Get PR author
-        author = get_pr_author(pr_number)
-        
+        author_result = GitHubUtils.get_pr_author(pr_number)
+        author = author_result.message
+
         # Determine failure type and generate appropriate message
         if pr_number in initial_set:
             print(f"  Type: Validation failure")
@@ -110,9 +111,10 @@ def main():
         else:
             print(f"  Warning: PR #{pr_number} not found in either failure category")
             continue
-        
+
         # Comment on the PR
-        if comment_on_pr(pr_number, message):
+        comment_result = GitHubUtils.comment_on_pr(pr_number, message)
+        if comment_result.success:
             success_count += 1
     
     print(f"\n=== Summary ===")

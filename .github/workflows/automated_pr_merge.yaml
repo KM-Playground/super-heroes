@@ -152,7 +152,7 @@ jobs:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           RELEASE_PR: ${{ github.event.inputs.release_pr }}
         run: |
-          python3 .github/scripts/validate_prs.py
+          python3 .github/scripts/merge_queue/validate_prs.py
 
       - name: Debug Output
         run: |
@@ -203,7 +203,7 @@ jobs:
           MAX_STARTUP_WAIT: "300"   # 5 minutes (configurable for different CI environments)
           MERGE_MESSAGE: "Merged via Merge Queue"  # Configurable merge commit message
         run: |
-          python3 -u .github/scripts/merge_prs_sequentially.py
+          python3 -u .github/scripts/merge_queue/merge_prs_sequentially.py
 
       - name: Comment on unmergeable PRs
         if: ${{ needs.validate-prs.outputs.has_unmergeable_prs == 'true' || needs.merge-approved.outputs.failed_merge_prs != '' }}
@@ -214,7 +214,7 @@ jobs:
           REQUIRED_APPROVALS: ${{ needs.validate-prs.outputs.required_approvals }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          python3 .github/scripts/process_unmergeable_prs.py
+          python3 .github/scripts/merge_queue/process_unmergeable_prs.py
 
   notify-release-failure:
     name: Notify failure of merging release to ${{ github.event.repository.default_branch }}
@@ -251,7 +251,7 @@ jobs:
 
       - name: Send Summary
         run: |
-          python3 .github/scripts/generate_summary.py
+          python3 .github/scripts/merge_queue/generate_summary.py
         env:
           GITHUB_TOKEN: ${{ github.token }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}

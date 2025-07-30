@@ -19,7 +19,7 @@ import time
 from typing import List
 import datetime
 
-from gh_utils import get_env_var, run_gh_command
+from ..common.gh_utils import GitHubUtils
 
 
 def parse_iso_datetime(iso_string: str) -> datetime.datetime:
@@ -66,13 +66,12 @@ def parse_mergeable_prs(json_str: str) -> List[int]:
 def update_pr_branch(pr_number: int, default_branch: str) -> bool:
   """Update PR branch with the default branch."""
   print(f"Updating PR #{pr_number} with {default_branch} branch...")
-  success, stdout, stderr = run_gh_command(
-      ["pr", "update-branch", str(pr_number)], check=False)
+  result = GitHubUtils.update_pr_branch(str(pr_number))
 
-  if not success:
+  if not result.success:
     print(f"⚠️ Failed to update PR #{pr_number} with {default_branch}")
-    if stderr:
-      print(f"Error: {stderr}")
+    if result.error_details:
+      print(f"Error: {result.error_details}")
     return False
 
   print(f"✅ Successfully updated PR #{pr_number}")
@@ -84,41 +83,36 @@ def trigger_ci_and_get_timestamp(pr_number: int) -> str:
   print(f"Triggering CI for PR #{pr_number}...")
 
   # Post comment and parse stdout to get comment ID
-  success, stdout, stderr = run_gh_command([
-    "pr", "comment", str(pr_number),
-    "--body", "Ok to test"
-  ], check=False)
+  result = GitHubUtils.trigger_ci_comment(str(pr_number))
 
-  if not success:
+  if not result.success:
     print(f"⚠️ Failed to trigger CI for PR #{pr_number}")
-    if stderr:
-      print(f"Error: {stderr}")
+    if result.stderr:
+      print(f"Error: {result.stderr}")
     return ""
 
   # Parse comment ID from stdout (usually contains the comment URL)
   # Expected format: https://github.com/owner/repo/issues/123#issuecomment-1234567890
   import re
-  comment_id_match = re.search(r'issuecomment-(\d+)', stdout)
+  comment_id_match = re.search(r'issuecomment-(\d+)', result.stdout)
   if not comment_id_match:
-    print(f"⚠️ Could not extract comment ID from output: {stdout}")
+    print(f"⚠️ Could not extract comment ID from output: {result.stdout}")
     return ""
 
   comment_id = comment_id_match.group(1)
   print(f"✅ CI triggered for PR #{pr_number}, comment ID: {comment_id}")
 
   # Get the precise timestamp of the comment using GitHub API
-  success, stdout, stderr = run_gh_command([
-    "api", f"repos/:owner/:repo/issues/comments/{comment_id}"
-  ], check=False)
+  result = GitHubUtils.get_comment_timestamp(comment_id)
 
-  if not success:
+  if not result.success:
     print(f"⚠️ Failed to get comment timestamp for comment {comment_id}")
-    if stderr:
-      print(f"Error: {stderr}")
+    if result.stderr:
+      print(f"Error: {result.stderr}")
     return ""
 
   try:
-    comment_details = json.loads(stdout)
+    comment_details = json.loads(result.stdout)
     created_at = comment_details.get("created_at", "")
 
     if not created_at:
@@ -160,19 +154,16 @@ def wait_for_ci_job_started_comment(pr_number: int, trigger_time: str,
 
   while wait_time < max_wait:
     # Get recent comments on the PR
-    success, stdout, stderr = run_gh_command([
-      "pr", "view", str(pr_number),
-      "--json", "comments"
-    ], check=False)
+    result = GitHubUtils.get_pr_comments(str(pr_number))
 
-    if not success:
+    if not result.success:
       print(f"⚠️ Failed to get comments for PR #{pr_number}")
       time.sleep(check_interval)
       wait_time += check_interval
       continue
 
     try:
-      pr_data = json.loads(stdout)
+      pr_data = json.loads(result.stdout)
       comments = pr_data.get("comments", [])
 
       # Look for comments posted after our trigger time
@@ -236,19 +227,16 @@ def wait_for_workflow_run_completion(run_id: str, max_wait: int,
 
   while wait_time < max_wait:
     # Get workflow run status
-    success, stdout, stderr = run_gh_command([
-      "run", "view", run_id,
-      "--json", "status,conclusion,workflowName"
-    ], check=False)
+    result = GitHubUtils.get_workflow_run_status(run_id)
 
-    if not success:
+    if not result.success:
       print(f"⚠️ Failed to get status for workflow run {run_id}")
       time.sleep(check_interval)
       wait_time += check_interval
       continue
 
     try:
-      run_data = json.loads(stdout)
+      run_data = json.loads(result.stdout)
       status = run_data.get("status", "")
       conclusion = run_data.get("conclusion", "")
       workflow_name = run_data.get("workflowName", "unknown")
@@ -282,15 +270,14 @@ def wait_for_workflow_run_completion(run_id: str, max_wait: int,
 
 def is_release_branch(pr_number: int) -> bool:
   """Check if a PR is from a release branch."""
-  success, stdout, stderr = run_gh_command(
-      ["pr", "view", str(pr_number), "--json", "headRefName"], check=False)
-  if not success:
+  result = GitHubUtils.get_pr_branch_name(str(pr_number))
+  if not result.success:
     print(
       f"⚠️ Could not determine branch name for PR #{pr_number}, assuming it's not a release branch")
     return False
 
   try:
-    pr_data = json.loads(stdout)
+    pr_data = json.loads(result.stdout)
     branch_name = pr_data.get("headRefName", "").lower()
     # Check if branch name contains common release branch patterns
     release_patterns = ["release", "rel-", "hotfix", "patch", "master"]
@@ -306,13 +293,11 @@ def merge_pr(pr_number: int, merge_message: str = None) -> bool:
   print(f"Merging PR #{pr_number} with squash...")
 
   # First, check if PR is still mergeable
-  success, stdout, stderr = run_gh_command([
-    "pr", "view", str(pr_number), "--json", "mergeable,state,author"
-  ], check=False)
+  result = GitHubUtils.get_pr_details(str(pr_number), "mergeable,state,author")
 
-  if success:
+  if result.success:
     try:
-      pr_data = json.loads(stdout)
+      pr_data = json.loads(result.stdout)
       mergeable = pr_data.get("mergeable", "")
       state = pr_data.get("state", "")
       author = pr_data.get("author", {}).get("login", "")
@@ -328,14 +313,10 @@ def merge_pr(pr_number: int, merge_message: str = None) -> bool:
         if author:
           conflict_message = f"@{author} ⚠️ **Merge Conflicts Detected**\n\nThis PR has merge conflicts that prevent it from being merged automatically. The conflicts likely occurred after the latest changes were merged to the main branch.\n\n**Next Steps:**\n1. Pull the latest changes from the main branch\n2. Resolve the merge conflicts in your branch\n3. Push the resolved changes\n4. The PR will be ready for the next merge cycle\n\n*This comment was automatically generated by the merge queue workflow.*"
 
-          comment_success, comment_stdout, comment_stderr = run_gh_command([
-            "pr", "comment", str(pr_number), "--body", conflict_message
-          ], check=False)
+          comment_result = GitHubUtils.comment_on_pr(str(pr_number), conflict_message)
 
-          if comment_success:
-            print(f"✅ Added merge conflict comment to PR #{pr_number}")
-          else:
-            print(f"⚠️ Failed to add merge conflict comment to PR #{pr_number}: {comment_stderr}")
+          if not comment_result.success:
+            print(f"⚠️ Failed to add merge conflict comment to PR #{pr_number}: {comment_result.error_details}")
 
         return False
 
@@ -347,38 +328,37 @@ def merge_pr(pr_number: int, merge_message: str = None) -> bool:
   should_delete_branch = not is_release_branch(pr_number)
 
   # Merge with branch deletion for feature branches, keep for release branches
-  merge_args = ["pr", "merge", str(pr_number), "--squash", "--admin"]
-
-  # Add custom merge message if provided
   if merge_message:
-    merge_args.extend(["--subject", merge_message])
     print(f"Using custom merge message: '{merge_message}'")
 
   if should_delete_branch:
-    merge_args.append("--delete-branch")
     print(f"Will delete branch after merge (feature branch)")
   else:
     print(f"Will keep branch after merge (release branch)")
 
-  success, stdout, stderr = run_gh_command(merge_args, check=False)
+  result = GitHubUtils.merge_pr(
+    str(pr_number),
+    squash=True,
+    delete_branch=should_delete_branch,
+    merge_message=merge_message,
+    admin=True
+  )
 
-  if not success:
+  if not result.success:
     print(f"⚠️ Failed to merge PR #{pr_number}")
-    if stderr:
-      print(f"Error: {stderr}")
-    if stdout:
-      print(f"Output: {stdout}")
+    if result.stderr:
+      print(f"Error: {result.stderr}")
+    if result.stdout:
+      print(f"Output: {result.stdout}")
     return False
 
   # Additional check: verify the merge was actually successful
   # Sometimes gh pr merge returns success but the PR is still open due to conflicts
-  success, stdout, stderr = run_gh_command([
-    "pr", "view", str(pr_number), "--json", "state"
-  ], check=False)
+  result = GitHubUtils.get_pr_details(str(pr_number), "state")
 
-  if success:
+  if result.success:
     try:
-      pr_data = json.loads(stdout)
+      pr_data = json.loads(result.stdout)
       final_state = pr_data.get("state", "")
       if final_state == "MERGED":
         print(f"✅ Successfully merged PR #{pr_number}")
@@ -410,14 +390,14 @@ def set_github_output(name: str, value: str):
 def main():
   """Main function to merge PRs sequentially."""
   # Get environment variables - no defaults, must be set
-  mergeable_prs_json = get_env_var("MERGEABLE_PRS")
-  default_branch = get_env_var("DEFAULT_BRANCH")
-  max_wait_seconds = int(get_env_var("MAX_WAIT_SECONDS"))
-  check_interval = int(get_env_var("CHECK_INTERVAL"))
-  max_startup_wait = int(get_env_var("MAX_STARTUP_WAIT"))
+  mergeable_prs_json = GitHubUtils.get_env_var("MERGEABLE_PRS")
+  default_branch = GitHubUtils.get_env_var("DEFAULT_BRANCH")
+  max_wait_seconds = int(GitHubUtils.get_env_var("MAX_WAIT_SECONDS"))
+  check_interval = int(GitHubUtils.get_env_var("CHECK_INTERVAL"))
+  max_startup_wait = int(GitHubUtils.get_env_var("MAX_STARTUP_WAIT"))
 
   # Get optional merge message (with default)
-  merge_message = get_env_var("MERGE_MESSAGE", "Merged via Merge Queue")
+  merge_message = GitHubUtils.get_env_var("MERGE_MESSAGE", "Merged via Merge Queue")
 
   print("=== DEBUG: Merge Job Started ===")
   print(f"Mergeable PRs JSON: {mergeable_prs_json}")

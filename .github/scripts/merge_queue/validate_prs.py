@@ -15,7 +15,7 @@ import json
 import sys
 from typing import List, Dict, Optional, Tuple
 
-from gh_utils import get_env_var, run_gh_command
+from ..common.gh_utils import GitHubUtils
 
 
 def parse_pr_numbers(pr_numbers_str: str) -> List[str]:
@@ -38,17 +38,15 @@ def get_required_approvals(manual_approvals: str, repository: str, default_branc
     print(f"Attempting to get branch protection rules for {default_branch}...")
     
     # Get branch protection rules
-    success, stdout, stderr = run_gh_command([
-        "api", f"repos/{repository}/branches/{default_branch}/protection"
-    ], check=False)
-    
-    if not success:
+    result = GitHubUtils.get_branch_protection(repository, default_branch)
+
+    if not result.success:
         print("⚠️ Could not access branch protection rules (requires admin permissions)")
         print("⚠️ Defaulting to 1 required approval. Use 'required_approvals' input to override.")
         return 1
-    
+
     try:
-        protection_data = json.loads(stdout) if stdout else {}
+        protection_data = json.loads(result.stdout) if result.stdout else {}
         required_approvals = protection_data.get("required_pull_request_reviews", {}).get("required_approving_review_count", 0)
         
         if required_approvals == 0 and not protection_data:
@@ -66,17 +64,15 @@ def get_required_approvals(manual_approvals: str, repository: str, default_branc
 
 def get_pr_info(pr_number: str) -> Optional[Dict]:
     """Get PR information using GitHub CLI."""
-    success, stdout, stderr = run_gh_command([
-        "pr", "view", pr_number,
-        "--json", "baseRefName,mergeable,headRefName,reviews,statusCheckRollup,state"
-    ], check=False)
-    
-    if not success:
-        print(f"❌ Failed to get info for PR #{pr_number}: {stderr}")
+    result = GitHubUtils.get_pr_details(pr_number,
+        "baseRefName,mergeable,headRefName,reviews,statusCheckRollup,state")
+
+    if not result.success:
+        print(f"❌ Failed to get info for PR #{pr_number}: {result.stderr}")
         return None
-    
+
     try:
-        return json.loads(stdout)
+        return json.loads(result.stdout)
     except json.JSONDecodeError as e:
         print(f"❌ Failed to parse PR #{pr_number} info: {e}")
         return None
@@ -192,11 +188,11 @@ def set_github_output(name: str, value: str):
 def main():
     """Main function to validate PRs."""
     # Get environment variables - no defaults, must be set
-    pr_numbers_str = get_env_var("PR_NUMBERS")
-    manual_approvals = get_env_var("REQUIRED_APPROVALS")
-    repository = get_env_var("REPOSITORY")
-    default_branch = get_env_var("DEFAULT_BRANCH")
-    release_pr = get_env_var("RELEASE_PR")
+    pr_numbers_str = GitHubUtils.get_env_var("PR_NUMBERS")
+    manual_approvals = GitHubUtils.get_env_var("REQUIRED_APPROVALS")
+    repository = GitHubUtils.get_env_var("REPOSITORY")
+    default_branch = GitHubUtils.get_env_var("DEFAULT_BRANCH")
+    release_pr = GitHubUtils.get_env_var("RELEASE_PR")
 
     print("=== DEBUG: All Variables ===")
     print(f"Repository: {repository}")
