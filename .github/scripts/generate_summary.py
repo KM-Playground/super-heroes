@@ -54,13 +54,13 @@ def parse_environment_data():
     }
 
 
-def generate_summary(data):
-    """Generate the PR merge summary report"""
+def generate_summary_with_authors(data):
+    """Generate the PR merge summary report with author information"""
     total_merged = len(data['merged'])
     total_failed = (len(data['unmergeable']) + len(data['failed_update']) +
                    len(data['failed_ci']) + len(data['timeout']) + len(data['startup_timeout']) + len(data['failed_merge']))
     date = datetime.now().strftime('%Y-%m-%d')
-    
+
     summary = f"""# PR Merge Summary - {date}
 
 ## Overview
@@ -70,22 +70,23 @@ def generate_summary(data):
 
 ## Successfully Merged PRs ✅
 """
-    
+
     if data['merged']:
         summary += '\n'.join(f"- PR #{pr}" for pr in data['merged'])
     else:
         summary += "- None"
-    
+
     summary += """
 
 ## Failed PRs by Category ❌
 
 ### Initial Validation Failures
 """
-    
+
     if data['unmergeable']:
-        summary += '\n'.join(f"- PR #{pr} (insufficient approvals, failing checks, or not targeting {data['default_branch']})"
-                           for pr in data['unmergeable'])
+        for pr in data['unmergeable']:
+            author = get_pr_author(str(pr))
+            summary += f"\n- PR #{pr} (@{author}) - insufficient approvals, failing checks, or not targeting {data['default_branch']}"
     else:
         summary += "- None"
 
@@ -95,30 +96,33 @@ def generate_summary(data):
 """
 
     if data['failed_update']:
-        summary += '\n'.join(f"- PR #{pr} (could not update branch with {data['default_branch']})"
-                           for pr in data['failed_update'])
+        for pr in data['failed_update']:
+            author = get_pr_author(str(pr))
+            summary += f"\n- PR #{pr} (@{author}) - could not update branch with {data['default_branch']}"
     else:
         summary += "- None"
-    
+
     summary += """
 
 ### CI Checks Failed
 """
-    
+
     if data['failed_ci']:
-        summary += '\n'.join(f"- PR #{pr} (CI checks failed after update)" 
-                           for pr in data['failed_ci'])
+        for pr in data['failed_ci']:
+            author = get_pr_author(str(pr))
+            summary += f"\n- PR #{pr} (@{author}) - CI checks failed after update"
     else:
         summary += "- None"
-    
+
     summary += """
 
 ### CI Execution Timeout
 """
 
     if data['timeout']:
-        summary += '\n'.join(f"- PR #{pr} (CI did not complete within 45 minutes)"
-                           for pr in data['timeout'])
+        for pr in data['timeout']:
+            author = get_pr_author(str(pr))
+            summary += f"\n- PR #{pr} (@{author}) - CI did not complete within 45 minutes"
     else:
         summary += "- None"
 
@@ -128,8 +132,9 @@ def generate_summary(data):
 """
 
     if data['startup_timeout']:
-        summary += '\n'.join(f"- PR #{pr} (CI workflow did not start within 5 minutes)"
-                           for pr in data['startup_timeout'])
+        for pr in data['startup_timeout']:
+            author = get_pr_author(str(pr))
+            summary += f"\n- PR #{pr} (@{author}) - CI workflow did not start within 5 minutes"
     else:
         summary += "- None"
 
@@ -137,19 +142,25 @@ def generate_summary(data):
 
 ### Merge Operation Failed
 """
-    
+
     if data['failed_merge']:
-        summary += '\n'.join(f"- PR #{pr} (merge command failed)" 
-                           for pr in data['failed_merge'])
+        for pr in data['failed_merge']:
+            author = get_pr_author(str(pr))
+            summary += f"\n- PR #{pr} (@{author}) - merge command failed (likely merge conflicts)"
     else:
         summary += "- None"
-    
+
     summary += f"""
 
 ---
 *Automated workflow execution*"""
-    
+
     return summary
+
+
+def generate_summary(data):
+    """Generate the PR merge summary report (legacy function for compatibility)"""
+    return generate_summary_with_authors(data)
 
 
 def get_failure_messages(default_branch, required_approvals):
@@ -160,7 +171,7 @@ def get_failure_messages(default_branch, required_approvals):
         'failed_ci': f"❌ This PR's CI checks failed after being updated with `{default_branch}`. Please review the failing checks and fix any issues.\n\nThe PR has been updated with the latest `{default_branch}` - please check if this caused any new test failures.",
         'timeout': f"⏰ This PR's CI checks did not complete within the 45-minute timeout period after being updated with `{default_branch}`.\n\nThe PR has been updated with the latest `{default_branch}` - please check the CI status and re-run if needed.",
         'startup_timeout': f"⏰ This PR's CI workflow did not start within the 5-minute startup timeout period after being triggered.\n\nThis may indicate issues with CI runner availability or workflow configuration. The PR has been updated with the latest `{default_branch}` - please check the CI status and re-trigger if needed.",
-        'failed_merge': f"❌ This PR failed to merge despite passing all checks. This may be due to a last-minute conflict or GitHub API issue.\n\nThe PR has been updated with the latest `{default_branch}` - please try merging manually or contact the repository administrators."
+        'failed_merge': f"❌ This PR failed to merge despite passing all checks. This is most likely due to merge conflicts that occurred after other PRs were merged to `{default_branch}`.\n\n**If you received a merge conflict notification:** Please resolve the conflicts in your branch and push the changes.\n\n**If no conflicts were reported:** This may be due to a GitHub API issue. The PR has been updated with the latest `{default_branch}` - please try merging manually or contact the repository administrators."
     }
 
 

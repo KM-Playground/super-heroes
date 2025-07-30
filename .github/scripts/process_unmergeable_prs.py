@@ -48,13 +48,15 @@ Please address these issues to include it in the next merge cycle."""
 
 def generate_merge_failure_message(author: str) -> str:
     """Generate message for PRs that failed during merge process."""
-    return f"""❌ @{author}, this PR passed initial validation but failed during the merge process. This could be due to:
+    return f"""❌ @{author}, this PR passed initial validation but failed during the merge process. This is most commonly due to:
 
-- Merge conflicts that developed after validation
+- **Merge conflicts** that developed after other PRs were merged (check for a separate merge conflict notification comment)
 - GitHub API errors during merge
 - Branch protection rule changes
 
-Please check the PR status and try again in the next merge cycle."""
+**If you received a merge conflict notification:** Please resolve the conflicts in your branch and push the changes.
+
+**Otherwise:** Please check the PR status and try again in the next merge cycle."""
 
 
 def main():
