@@ -67,8 +67,8 @@ def get_required_approvals(manual_approvals: str, repository: str, default_branc
 def get_pr_info(pr_number: str) -> Optional[Dict]:
     """Get PR information using GitHub CLI."""
     success, stdout, stderr = run_gh_command([
-        "pr", "view", pr_number, 
-        "--json", "baseRefName,mergeable,headRefName,reviews,statusCheckRollup"
+        "pr", "view", pr_number,
+        "--json", "baseRefName,mergeable,headRefName,reviews,statusCheckRollup,state"
     ], check=False)
     
     if not success:
@@ -97,15 +97,21 @@ def get_failing_checks(status_checks: List[Dict]) -> List[str]:
     return failing
 
 
-def validate_pr(pr_number: str, required_approvals: int, default_branch: str) -> Tuple[bool, List[str]]:
+def validate_pr(pr_number: str, required_approvals: int, default_branch: str, pr_type: str = "regular") -> Tuple[bool, List[str]]:
     """
     Validate a single PR.
-    
+
+    Args:
+        pr_number: The PR number to validate
+        required_approvals: Number of required approvals
+        default_branch: The default branch (integration branch) that PRs should target
+        pr_type: Type of PR ("regular" or "release") for better error messages
+
     Returns:
         (is_mergeable, reasons_for_failure)
     """
-    print(f"Checking PR #{pr_number}...")
-    
+    print(f"Checking {pr_type} PR #{pr_number} (should target '{default_branch}')...")
+
     # Get PR information
     pr_info = get_pr_info(pr_number)
     if not pr_info:
@@ -114,26 +120,35 @@ def validate_pr(pr_number: str, required_approvals: int, default_branch: str) ->
     # Extract data
     base_branch = pr_info.get("baseRefName", "")
     mergeable_state = pr_info.get("mergeable", "")
+    pr_state = pr_info.get("state", "")
     reviews = pr_info.get("reviews", [])
     status_checks = pr_info.get("statusCheckRollup", [])
-    
+
     approval_count = count_approvals(reviews)
     failing_checks = get_failing_checks(status_checks)
-    
+
     # Debug output
     print(f"  Debug - PR #{pr_number} variables:")
+    print(f"    PR state: {pr_state}")
     print(f"    Base branch: {base_branch}")
     print(f"    Mergeable state: {mergeable_state}")
     print(f"    Approvals count: {approval_count}")
     print(f"    Required approvals: {required_approvals}")
     print(f"    Failing checks: {failing_checks}")
-    
+
     # Validation checks
     failure_reasons = []
+
+    # Check if PR is open (most important check - skip already processed PRs)
+    if pr_state != "OPEN":
+        reason = f"PR is not open (state: {pr_state})"
+        print(f"⚠️ PR #{pr_number} {reason} - skipping already processed PR")
+        failure_reasons.append(reason)
+        return False, failure_reasons
     
-    # Check base branch
+    # Check base branch (target validation) - all PRs should target the default branch
     if base_branch != default_branch:
-        reason = f"Does not target '{default_branch}' (targets '{base_branch}')"
+        reason = f"Does not target '{default_branch}' (targets '{base_branch}') - all PRs must target the default branch '{default_branch}'"
         print(f"❌ PR #{pr_number} {reason}")
         failure_reasons.append(reason)
     
@@ -182,10 +197,10 @@ def main():
     repository = get_env_var("REPOSITORY")
     default_branch = get_env_var("DEFAULT_BRANCH")
     release_pr = get_env_var("RELEASE_PR")
-    
+
     print("=== DEBUG: All Variables ===")
     print(f"Repository: {repository}")
-    print(f"Default branch: {default_branch}")
+    print(f"Default branch (target for all PRs): {default_branch}")
     print(f"PR numbers input: {pr_numbers_str}")
     print(f"Release PR: {release_pr}")
     print(f"Required approvals input: {manual_approvals}")
@@ -213,14 +228,29 @@ def main():
     # Validate each PR
     mergeable_prs = []
     unmergeable_prs = []
-    
+
+    # Validate regular PRs
     for pr_number in pr_numbers:
-        is_mergeable, failure_reasons = validate_pr(pr_number, required_approvals, default_branch)
-        
+        is_mergeable, failure_reasons = validate_pr(pr_number, required_approvals, default_branch, "regular")
+
         if is_mergeable:
             mergeable_prs.append(pr_number)
         else:
             unmergeable_prs.append(pr_number)
+
+    # Validate release PR if provided
+    if release_pr and release_pr.strip():
+        print(f"\n=== Validating Release PR ===")
+        is_mergeable, failure_reasons = validate_pr(release_pr.strip(), required_approvals, default_branch, "release")
+
+        if not is_mergeable:
+            print(f"❌ Release PR #{release_pr} validation failed:")
+            for reason in failure_reasons:
+                print(f"  - {reason}")
+            # Note: We don't add release PR to unmergeable_prs as it's handled separately in the workflow
+            print(f"⚠️ Release PR validation failed - the release merge step may fail")
+        else:
+            print(f"✅ Release PR #{release_pr} validation passed")
     
     # Convert to JSON arrays
     mergeable_json = json.dumps(mergeable_prs)

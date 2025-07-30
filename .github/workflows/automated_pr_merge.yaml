@@ -32,6 +32,53 @@ jobs:
     outputs:
       approved_by: ${{ steps.set.outputs.actor }}
     steps:
+      - name: Log Merge Request Details
+        run: |
+          echo "=== MERGE QUEUE REQUEST DETAILS ==="
+          echo "Requested by: ${{ github.actor }}"
+          echo "Repository: ${{ github.repository }}"
+          echo "Default branch: ${{ github.event.repository.default_branch }}"
+          echo ""
+          echo "📋 PRs to merge into ${{ github.event.repository.default_branch }}:"
+          echo "${{ github.event.inputs.pr_numbers }}"
+          echo ""
+          if [ -n "${{ github.event.inputs.release_pr }}" ]; then
+            echo "🚀 Release PR to merge into ${{ github.event.repository.default_branch }}:"
+            echo "PR #${{ github.event.inputs.release_pr }}"
+            echo ""
+          fi
+          if [ -n "${{ github.event.inputs.required_approvals }}" ]; then
+            echo "✅ Required approvals override: ${{ github.event.inputs.required_approvals }}"
+          else
+            echo "✅ Required approvals: Auto-detect from branch protection"
+          fi
+          echo ""
+          echo "⚠️  PLEASE REVIEW THE ABOVE DETAILS BEFORE APPROVING"
+          echo "==================================="
+
+      - name: Update Environment Description
+        run: |
+          # Build concise description for environment (respecting character limits)
+          RELEASE_INFO=""
+          if [ -n "${{ github.event.inputs.release_pr }}" ]; then
+            RELEASE_INFO=" | Release: ${{ github.event.inputs.release_pr }}"
+          fi
+
+          APPROVAL_INFO=""
+          if [ -n "${{ github.event.inputs.required_approvals }}" ]; then
+            APPROVAL_INFO=" | Approvals: ${{ github.event.inputs.required_approvals }}"
+          fi
+
+          DESCRIPTION="🔄 PRs: ${{ github.event.inputs.pr_numbers }}${RELEASE_INFO} | By: ${{ github.actor }}${APPROVAL_INFO}"
+
+          echo "Updating environment description: $DESCRIPTION"
+
+          gh api --method PATCH \
+            /repos/${{ github.repository }}/environments/merge_queue \
+            --field description="$DESCRIPTION"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Confirm Approver Identity
         id: set
         run: echo "actor=${{ github.actor }}" >> $GITHUB_OUTPUT
@@ -217,3 +264,13 @@ jobs:
           TIMEOUT: ${{ needs.merge-approved.outputs.timeout_prs }}
           STARTUP_TIMEOUT: ${{ needs.merge-approved.outputs.startup_timeout_prs }}
           FAILED_MERGE: ${{ needs.merge-approved.outputs.failed_merge_prs }}
+
+      - name: Reset Environment Description
+        if: always()
+        run: |
+          echo "Resetting environment description to default state..."
+          gh api --method PATCH \
+            /repos/${{ github.repository }}/environments/merge_queue \
+            --field description="Environment for merge queue approvals"
+        env:
+          GH_TOKEN: ${{ github.token }}
