@@ -154,6 +154,7 @@ jobs:
           MAX_WAIT_SECONDS: "2700"  # 45 minutes
           CHECK_INTERVAL: "30"      # 30 seconds
           MAX_STARTUP_WAIT: "300"   # 5 minutes (configurable for different CI environments)
+          MERGE_MESSAGE: "Merged via Merge Queue"  # Configurable merge commit message
         run: |
           python3 -u .github/scripts/merge_prs_sequentially.py
 

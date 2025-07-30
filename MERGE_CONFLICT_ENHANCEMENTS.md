@@ -1,8 +1,8 @@
-# Merge Conflict Detection and PR Author Tagging Enhancements
+# Merge Conflict Detection, PR Author Tagging, and Custom Merge Message Enhancements
 
 ## Overview
 
-This document summarizes the enhancements made to the automated PR merge workflow to provide better merge conflict detection and PR author tagging functionality.
+This document summarizes the enhancements made to the automated PR merge workflow to provide better merge conflict detection, PR author tagging functionality, and configurable merge commit messages.
 
 ## Problem Statement
 
@@ -11,6 +11,7 @@ Based on the failed workflow execution (https://github.com/KM-Playground/super-h
 1. **Immediate merge conflict detection and commenting** when conflicts are detected
 2. **Enhanced PR author tagging** in all failure notifications and summaries
 3. **Better messaging** about merge conflicts to help developers understand next steps
+4. **Configurable merge commit messages** for all automated merges
 
 ## Changes Made
 
@@ -87,6 +88,38 @@ This PR has merge conflicts that prevent it from being merged automatically. The
 **If you received a merge conflict notification:** Please resolve the conflicts in your branch and push the changes.
 
 **Otherwise:** Please check the PR status and try again in the next merge cycle.
+```
+
+### 5. Configurable Merge Commit Messages (`automated_pr_merge.yaml` & `merge_prs_sequentially.py`)
+
+**Location:**
+- `.github/workflows/automated_pr_merge.yaml` - Environment variable configuration
+- `.github/scripts/merge_prs_sequentially.py` - Merge command construction
+
+**Changes:**
+- Added `MERGE_MESSAGE` environment variable to the workflow
+- Modified `merge_pr()` function to accept and use custom merge messages
+- Enhanced merge command construction to include `--subject` flag when custom message is provided
+- Added logging to show when custom merge messages are being used
+
+**Configuration:**
+```yaml
+env:
+  MERGE_MESSAGE: "Merged via Merge Queue"  # Configurable merge commit message
+```
+
+**Default Message:** `"Merged via Merge Queue"`
+
+**Example Usage:**
+To change the merge message, simply update the `MERGE_MESSAGE` environment variable in the workflow:
+```yaml
+env:
+  MERGE_MESSAGE: "🚀 Auto-merged by Super Heroes CI"
+```
+
+**Generated Command:**
+```bash
+gh pr merge 47 --squash --admin --subject "Merged via Merge Queue" --delete-branch
 ```
 
 ## Workflow Flow for Merge Conflicts

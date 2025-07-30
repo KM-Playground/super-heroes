@@ -301,7 +301,7 @@ def is_release_branch(pr_number: int) -> bool:
     return False
 
 
-def merge_pr(pr_number: int) -> bool:
+def merge_pr(pr_number: int, merge_message: str = None) -> bool:
   """Merge a PR using squash merge and delete branch if it's a feature branch."""
   print(f"Merging PR #{pr_number} with squash...")
 
@@ -348,6 +348,12 @@ def merge_pr(pr_number: int) -> bool:
 
   # Merge with branch deletion for feature branches, keep for release branches
   merge_args = ["pr", "merge", str(pr_number), "--squash", "--admin"]
+
+  # Add custom merge message if provided
+  if merge_message:
+    merge_args.extend(["--subject", merge_message])
+    print(f"Using custom merge message: '{merge_message}'")
+
   if should_delete_branch:
     merge_args.append("--delete-branch")
     print(f"Will delete branch after merge (feature branch)")
@@ -410,12 +416,16 @@ def main():
   check_interval = int(get_env_var("CHECK_INTERVAL"))
   max_startup_wait = int(get_env_var("MAX_STARTUP_WAIT"))
 
+  # Get optional merge message (with default)
+  merge_message = get_env_var("MERGE_MESSAGE", "Merged via Merge Queue")
+
   print("=== DEBUG: Merge Job Started ===")
   print(f"Mergeable PRs JSON: {mergeable_prs_json}")
   print(f"Default branch: {default_branch}")
   print(f"Max wait time: {max_wait_seconds}s")
   print(f"Check interval: {check_interval}s")
   print(f"Max startup wait: {max_startup_wait}s")
+  print(f"Merge message: '{merge_message}'")
   print("================================")
 
   # Parse and sort PRs
@@ -479,7 +489,7 @@ def main():
       continue
 
     # Step 5: Merge the PR
-    if merge_pr(pr_number):
+    if merge_pr(pr_number, merge_message):
       merged.append(str(pr_number))
       # Wait for merge to complete before processing next PR
       time.sleep(10)
