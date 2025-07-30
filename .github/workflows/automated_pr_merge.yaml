@@ -264,6 +264,7 @@ jobs:
           TIMEOUT: ${{ needs.merge-approved.outputs.timeout_prs }}
           STARTUP_TIMEOUT: ${{ needs.merge-approved.outputs.startup_timeout_prs }}
           FAILED_MERGE: ${{ needs.merge-approved.outputs.failed_merge_prs }}
+          SUBMITTER: ${{ github.actor }}
 
       - name: Reset Environment Description
         if: always()

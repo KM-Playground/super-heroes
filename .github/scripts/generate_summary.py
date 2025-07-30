@@ -19,6 +19,7 @@ def parse_environment_data():
 
     default_branch = os.getenv('DEFAULT_BRANCH', 'main')
     required_approvals = os.getenv('REQUIRED_APPROVALS', '2')
+    submitter = os.getenv('SUBMITTER', 'unknown')
     
     def parse_comma_separated(env_var):
         value = os.getenv(env_var, '')
@@ -44,6 +45,7 @@ def parse_environment_data():
         'default_branch': default_branch,
         'required_approvals': required_approvals,
         'total_requested': total_requested,
+        'submitter': submitter,
         'merged': merged,
         'unmergeable': unmergeable,
         'failed_update': failed_update,
@@ -153,6 +155,8 @@ def generate_summary_with_authors(data):
     summary += f"""
 
 ---
+@{data.get('submitter', 'unknown')} - Your merge queue request has been completed!
+
 *Automated workflow execution*"""
 
     return summary
