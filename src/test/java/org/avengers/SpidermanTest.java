@@ -9,11 +9,8 @@ import org.junit.jupiter.api.Test;
  */
 public class SpidermanTest {
 
-    /**
-     * Rigorous Test :-)
-     */
     @Test
-    public void shouldAnswerWithTrue() {
+    public void thisIsAVeryDifficultTestMethod() {
         assertTrue(true);
     }
 }
