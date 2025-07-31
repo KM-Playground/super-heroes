@@ -29,7 +29,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      administration: write
     steps:
       - name: Log Merge Request Details
         run: |
@@ -55,32 +54,7 @@ jobs:
           echo "⚠️  PLEASE REVIEW THE ABOVE DETAILS BEFORE APPROVING"
           echo "==================================="
 
-      - name: Update Environment Description with Full Details
-        run: |
-          # Build detailed description for approvers (GitHub environments support longer descriptions)
-          RELEASE_INFO=""
-          if [ -n "${{ github.event.inputs.release_pr }}" ]; then
-            RELEASE_INFO="🚀 Release PR: #${{ github.event.inputs.release_pr }} → ${{ github.event.repository.default_branch }} | "
-          fi
 
-          APPROVAL_INFO=""
-          if [ -n "${{ github.event.inputs.required_approvals }}" ]; then
-            APPROVAL_INFO="✅ Required Approvals: ${{ github.event.inputs.required_approvals }} | "
-          else
-            APPROVAL_INFO="✅ Required Approvals: Auto-detect | "
-          fi
-
-          # Create comprehensive description for approvers
-          DESCRIPTION="🔄 MERGE QUEUE REQUEST | Requested by: ${{ github.actor }} | ${RELEASE_INFO}📋 PRs → ${{ github.event.repository.default_branch }}: ${{ github.event.inputs.pr_numbers }} | ${APPROVAL_INFO}⚠️ REVIEW DETAILS BEFORE APPROVING"
-
-          echo "Updating environment description with full details for approvers:"
-          echo "$DESCRIPTION"
-
-          gh api --method PATCH \
-            /repos/${{ github.repository }}/environments/merge_queue \
-            --field description="$DESCRIPTION"
-        env:
-          GH_TOKEN: ${{ github.token }}
 
 
       - name: Display Detailed Information for Approvers
@@ -329,12 +303,4 @@ jobs:
           FAILED_MERGE: ${{ needs.merge-approved.outputs.failed_merge_prs }}
           SUBMITTER: ${{ github.actor }}
 
-      - name: Reset Environment Description
-        if: always()
-        run: |
-          echo "Resetting environment description to default state..."
-          gh api --method PATCH \
-            /repos/${{ github.repository }}/environments/merge_queue \
-            --field description="Environment for merge queue approvals"
-        env:
-          GH_TOKEN: ${{ github.token }}
+
