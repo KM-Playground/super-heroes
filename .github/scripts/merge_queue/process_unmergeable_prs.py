@@ -7,10 +7,14 @@ during the merge process, then generates appropriate comments for each PR author
 """
 
 import json
+import os
 import sys
 from typing import List
 
-from ..common.gh_utils import GitHubUtils
+# Add the parent directory to sys.path to enable imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from common.gh_utils import GitHubUtils
 
 
 def parse_json_array(json_str: str) -> List[str]:

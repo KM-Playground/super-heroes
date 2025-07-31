@@ -19,7 +19,10 @@ import time
 from typing import List
 import datetime
 
-from ..common.gh_utils import GitHubUtils
+# Add the parent directory to sys.path to enable imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from common.gh_utils import GitHubUtils
 
 
 def parse_iso_datetime(iso_string: str) -> datetime.datetime:

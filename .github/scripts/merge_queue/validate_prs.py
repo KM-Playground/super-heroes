@@ -15,7 +15,10 @@ import json
 import sys
 from typing import List, Dict, Optional, Tuple
 
-from ..common.gh_utils import GitHubUtils
+# Add the parent directory to sys.path to enable imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+from common.gh_utils import GitHubUtils
 
 
 def parse_pr_numbers(pr_numbers_str: str) -> List[str]:
