@@ -24,13 +24,11 @@ on:
 
 jobs:
 
-  approval-gate:
-    name: Await Manual Approval (SPOC)
+  prepare-approval:
+    name: Prepare Merge Request Details
     runs-on: ubuntu-latest
-    environment:
-      name: merge_queue
-    outputs:
-      approved_by: ${{ steps.set.outputs.actor }}
+    permissions:
+      contents: read
     steps:
       - name: Log Merge Request Details
         run: |
@@ -56,28 +54,92 @@ jobs:
           echo "⚠️  PLEASE REVIEW THE ABOVE DETAILS BEFORE APPROVING"
           echo "==================================="
 
-      - name: Update Environment Description
+      - name: Update Environment Description with Full Details
         run: |
-          # Build concise description for environment (respecting character limits)
+          # Build detailed description for approvers (GitHub environments support longer descriptions)
           RELEASE_INFO=""
           if [ -n "${{ github.event.inputs.release_pr }}" ]; then
-            RELEASE_INFO=" | Release: ${{ github.event.inputs.release_pr }}"
+            RELEASE_INFO="🚀 Release PR: #${{ github.event.inputs.release_pr }} → ${{ github.event.repository.default_branch }} | "
           fi
 
           APPROVAL_INFO=""
           if [ -n "${{ github.event.inputs.required_approvals }}" ]; then
-            APPROVAL_INFO=" | Approvals: ${{ github.event.inputs.required_approvals }}"
+            APPROVAL_INFO="✅ Required Approvals: ${{ github.event.inputs.required_approvals }} | "
+          else
+            APPROVAL_INFO="✅ Required Approvals: Auto-detect | "
           fi
 
-          DESCRIPTION="🔄 PRs: ${{ github.event.inputs.pr_numbers }}${RELEASE_INFO} | By: ${{ github.actor }}${APPROVAL_INFO}"
+          # Create comprehensive description for approvers
+          DESCRIPTION="🔄 MERGE QUEUE REQUEST | Requested by: ${{ github.actor }} | ${RELEASE_INFO}📋 PRs → ${{ github.event.repository.default_branch }}: ${{ github.event.inputs.pr_numbers }} | ${APPROVAL_INFO}⚠️ REVIEW DETAILS BEFORE APPROVING"
 
-          echo "Updating environment description: $DESCRIPTION"
+          echo "Updating environment description with full details for approvers:"
+          echo "$DESCRIPTION"
 
           gh api --method PATCH \
             /repos/${{ github.repository }}/environments/merge_queue \
             --field description="$DESCRIPTION"
         env:
           GH_TOKEN: ${{ github.token }}
+
+
+      - name: Display Detailed Information for Approvers
+        run: |
+          echo ""
+          echo "🔄 =============================================="
+          echo "   MERGE QUEUE REQUEST - APPROVAL REQUIRED"
+          echo "=============================================="
+          echo ""
+          echo "📊 REQUEST SUMMARY:"
+          echo "   • Requested by: ${{ github.actor }}"
+          echo "   • Repository: ${{ github.repository }}"
+          echo "   • Target Branch: ${{ github.event.repository.default_branch }}"
+          echo "   • Workflow Run: ${{ github.run_id }}"
+          echo ""
+          echo "📋 PRs TO MERGE INTO '${{ github.event.repository.default_branch }}':"
+          echo "   ${{ github.event.inputs.pr_numbers }}"
+          echo ""
+          if [ -n "${{ github.event.inputs.release_pr }}" ]; then
+            echo "🚀 RELEASE PR TO MERGE:"
+            echo "   PR #${{ github.event.inputs.release_pr }} → ${{ github.event.repository.default_branch }}"
+            echo ""
+          fi
+          if [ -n "${{ github.event.inputs.required_approvals }}" ]; then
+            echo "✅ APPROVAL CONFIGURATION:"
+            echo "   Required Approvals: ${{ github.event.inputs.required_approvals }} (override)"
+          else
+            echo "✅ APPROVAL CONFIGURATION:"
+            echo "   Required Approvals: Auto-detect from branch protection"
+          fi
+          echo ""
+          echo "⚠️  IMPORTANT FOR APPROVERS:"
+          echo "   • Review the above details carefully"
+          echo "   • Verify PR numbers and target branch"
+          echo "   • Check release PR if applicable"
+          echo "   • Ensure you have authority to approve this merge"
+          echo ""
+          echo "🎯 TO APPROVE:"
+          echo "   Go to the workflow run and approve the 'merge_queue' environment"
+          echo "   URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo ""
+          echo "=============================================="
+
+  approval-gate:
+    name: Await Manual Approval (SPOC)
+    runs-on: ubuntu-latest
+    needs: [prepare-approval]
+    environment:
+      name: merge_queue
+    outputs:
+      approved_by: ${{ steps.set.outputs.actor }}
+    steps:
+      - name: Confirm Approval
+        run: |
+          echo "✅ Merge queue request approved by: ${{ github.actor }}"
+          echo "📋 PRs to merge: ${{ github.event.inputs.pr_numbers }}"
+          if [ -n "${{ github.event.inputs.release_pr }}" ]; then
+            echo "🚀 Release PR: #${{ github.event.inputs.release_pr }}"
+          fi
+          echo "🎯 Target branch: ${{ github.event.repository.default_branch }}"
 
       - name: Confirm Approver Identity
         id: set
@@ -120,7 +182,7 @@ jobs:
 
   validate-prs:
     name: Validate PRs
-    needs: [merge-release]
+    needs: [approval-gate, merge-release]
     if: always() && (github.event.inputs.release_pr == '' || needs.merge-release.outputs.release_success == 'true')
     runs-on: ubuntu-latest
     permissions:
@@ -234,7 +296,7 @@ jobs:
 
   notify-summary:
     name: Send Summary Notification
-    needs: [validate-prs, merge-approved]
+    needs: [approval-gate, validate-prs, merge-approved]
     runs-on: ubuntu-latest
     if: always()
     permissions:
