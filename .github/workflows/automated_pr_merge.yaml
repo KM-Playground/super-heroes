@@ -136,9 +136,13 @@ jobs:
       - name: Merge release PR
         id: merge
         continue-on-error: true
+        env:
+          RELEASE_PR: ${{ github.event.inputs.release_pr }}
+          REPOSITORY: ${{ github.repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          echo "Merging release PR #${{ github.event.inputs.release_pr }} into ${{ github.event.repository.default_branch }}..."
-          gh pr merge ${{ github.event.inputs.release_pr }} --merge --admin
+          echo "Merging release PR #$RELEASE_PR into $DEFAULT_BRANCH..."
+          python3 .github/scripts/merge_queue/merge_release_pr.py
 
       - name: Check merge result
         id: check
@@ -235,10 +239,10 @@ jobs:
         env:
           MERGEABLE_PRS: ${{ needs.validate-prs.outputs.mergeable_prs }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          REPOSITORY: ${{ github.repository }}
           MAX_WAIT_SECONDS: "2700"  # 45 minutes
           CHECK_INTERVAL: "30"      # 30 seconds
           MAX_STARTUP_WAIT: "300"   # 5 minutes (configurable for different CI environments)
-          MERGE_MESSAGE: "Merged via Merge Queue"  # Configurable merge commit message
         run: |
           python3 -u .github/scripts/merge_queue/merge_prs_sequentially.py
 

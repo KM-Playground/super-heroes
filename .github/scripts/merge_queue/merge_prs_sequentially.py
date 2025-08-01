@@ -271,27 +271,10 @@ def wait_for_workflow_run_completion(run_id: str, max_wait: int,
   return "timeout"
 
 
-def is_release_branch(pr_number: int) -> bool:
-  """Check if a PR is from a release branch."""
-  result = GitHubUtils.get_pr_branch_name(str(pr_number))
-  if not result.success:
-    print(
-      f"⚠️ Could not determine branch name for PR #{pr_number}, assuming it's not a release branch")
-    return False
-
-  try:
-    pr_data = json.loads(result.stdout)
-    branch_name = pr_data.get("headRefName", "").lower()
-    # Check if branch name contains common release branch patterns
-    release_patterns = ["release", "rel-", "hotfix", "patch", "master"]
-    return any(pattern in branch_name for pattern in release_patterns)
-  except (json.JSONDecodeError, KeyError):
-    print(
-      f"⚠️ Could not parse branch name for PR #{pr_number}, assuming it's not a release branch")
-    return False
 
 
-def merge_pr(pr_number: int, merge_message: str = None) -> bool:
+
+def merge_pr(pr_number: int, repository: str) -> bool:
   """Merge a PR using squash merge and delete branch if it's a feature branch."""
   print(f"Merging PR #{pr_number} with squash...")
 
@@ -327,17 +310,42 @@ def merge_pr(pr_number: int, merge_message: str = None) -> bool:
       print(f"⚠️ Could not parse PR status for #{pr_number}: {e}")
       # Continue with merge attempt anyway
 
-  # Check if this is a release branch to determine if we should delete it later
-  should_delete_branch = not is_release_branch(pr_number)
+  # Get PR branch name for merge message and protection check
+  branch_result = GitHubUtils.get_pr_branch_name(str(pr_number))
+  branch_name = "unknown-branch"
+  should_delete_branch = False  # Default to safe option
 
-  # Merge with branch deletion for feature branches, keep for release branches
-  if merge_message:
-    print(f"Using custom merge message: '{merge_message}'")
+  if branch_result.success:
+    try:
+      branch_data = json.loads(branch_result.stdout)
+      branch_name = branch_data.get("headRefName", "unknown-branch")
+      print(f"✅ Retrieved branch name: {branch_name}")
 
-  if should_delete_branch:
-    print(f"Will delete branch after merge (feature branch)")
+      # Check if this branch is protected to determine if we should delete it
+      if branch_name != "unknown-branch":
+        print(f"Checking if branch '{branch_name}' is protected...")
+        is_branch_protected = GitHubUtils.is_branch_protected(repository, branch_name)
+        should_delete_branch = not is_branch_protected
+
+        if should_delete_branch:
+          print(f"Will delete branch after merge (non-protected branch)")
+        else:
+          print(f"Will keep branch after merge (protected branch)")
+      else:
+        print(f"Will keep branch after merge (unknown branch name - safe default)")
+
+    except (json.JSONDecodeError, KeyError) as e:
+      print(f"⚠️ Could not parse branch name for PR #{pr_number}: {e}")
+      print(f"Will keep branch after merge (safe default)")
+      # Continue with default branch name and safe deletion setting
   else:
-    print(f"Will keep branch after merge (release branch)")
+    print(f"⚠️ Could not get branch name for PR #{pr_number}: {branch_result.stderr}")
+    print(f"Will keep branch after merge (safe default)")
+    # Continue with default branch name and safe deletion setting
+
+  # Generate merge message in the required format
+  merge_message = f"[Merge Queue]Merge Pull Request #{pr_number} from {branch_name}"
+  print(f"Using merge message: '{merge_message}'")
 
   result = GitHubUtils.merge_pr(
     str(pr_number),
@@ -395,20 +403,19 @@ def main():
   # Get environment variables - no defaults, must be set
   mergeable_prs_json = GitHubUtils.get_env_var("MERGEABLE_PRS")
   default_branch = GitHubUtils.get_env_var("DEFAULT_BRANCH")
+  repository = GitHubUtils.get_env_var("REPOSITORY")
   max_wait_seconds = int(GitHubUtils.get_env_var("MAX_WAIT_SECONDS"))
   check_interval = int(GitHubUtils.get_env_var("CHECK_INTERVAL"))
   max_startup_wait = int(GitHubUtils.get_env_var("MAX_STARTUP_WAIT"))
 
-  # Get optional merge message (with default)
-  merge_message = GitHubUtils.get_env_var("MERGE_MESSAGE", "Merged via Merge Queue")
-
   print("=== DEBUG: Merge Job Started ===")
   print(f"Mergeable PRs JSON: {mergeable_prs_json}")
   print(f"Default branch: {default_branch}")
+  print(f"Repository: {repository}")
   print(f"Max wait time: {max_wait_seconds}s")
   print(f"Check interval: {check_interval}s")
   print(f"Max startup wait: {max_startup_wait}s")
-  print(f"Merge message: '{merge_message}'")
+  print("Merge messages will be generated dynamically for each PR")
   print("================================")
 
   # Parse and sort PRs
@@ -472,7 +479,7 @@ def main():
       continue
 
     # Step 5: Merge the PR
-    if merge_pr(pr_number, merge_message):
+    if merge_pr(pr_number, repository):
       merged.append(str(pr_number))
       # Wait for merge to complete before processing next PR
       time.sleep(10)

@@ -6,6 +6,7 @@ This module provides common functions for executing GitHub CLI commands
 across all workflow scripts to avoid code duplication.
 """
 
+import json
 import os
 import subprocess
 import sys
@@ -272,3 +273,24 @@ class GitHubUtils:
         return GitHubUtils._run_gh_command([
             "api", f"repos/{repository}/branches/{branch}/protection"
         ], check=False)
+
+    @staticmethod
+    def is_branch_protected(repository: str, branch: str) -> bool:
+        """Check if a branch is protected by querying branch protection rules."""
+        result = GitHubUtils.get_branch_protection(repository, branch)
+
+        if not result.success:
+            # If we get a 404, the branch is not protected
+            # If we get other errors (like 403), we assume it's not protected for safety
+            print(f"⚠️ Could not check protection status for branch '{branch}': {result.stderr}")
+            return False
+
+        try:
+            # If we successfully get protection data, the branch is protected
+            protection_data = json.loads(result.stdout) if result.stdout else {}
+            is_protected = bool(protection_data)
+            print(f"✅ Branch '{branch}' protection status: {'protected' if is_protected else 'not protected'}")
+            return is_protected
+        except json.JSONDecodeError as e:
+            print(f"⚠️ Error parsing branch protection data for '{branch}': {e}")
+            return False
