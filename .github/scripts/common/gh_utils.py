@@ -286,8 +286,16 @@ class GitHubUtils:
             return False
 
         try:
-            # If we successfully get protection data, the branch is protected
+            # Parse the response to check if it's an error or actual protection data
             protection_data = json.loads(result.stdout) if result.stdout else {}
+
+            # Check if this is an error response (GitHub API returns error details in JSON)
+            if "message" in protection_data and "status" in protection_data:
+                # This is an error response, likely "Branch not protected"
+                print(f"✅ Branch '{branch}' protection status: not protected")
+                return False
+
+            # If we get here, we have actual protection data, so the branch is protected
             is_protected = bool(protection_data)
             print(f"✅ Branch '{branch}' protection status: {'protected' if is_protected else 'not protected'}")
             return is_protected
