@@ -8,6 +8,7 @@ on:
     types: [created]
 env:
   GH_TOKEN: ${{ github.token }}
+  SIMULATE_FAILURE: ${{ vars.SIMULATE_FAILURE }} || false
 
 jobs:
   run-tests:
