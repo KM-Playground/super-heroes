@@ -61,7 +61,7 @@ def main():
         print(f"✅ Source branch '{source_branch}' is protected - keeping branch after merge")
     
     # Prepare merge command
-    merge_message = f"[Merge Queue] {pr_title}"
+    merge_message = f"[Merge Queue] #{release_pr}-{pr_title}-{source_branch}"
     print(f"Using merge message: '{merge_message}'")
     
     # Execute merge

@@ -508,16 +508,18 @@ def merge_pr(pr_number: int, repository: str) -> bool:
       print(f"⚠️ Could not parse PR status for #{pr_number}: {e}")
       # Continue with merge attempt anyway
 
-  # Get PR branch name for merge message and protection check
-  branch_result = GitHubUtils.get_pr_branch_name(str(pr_number))
+  # Get PR details for merge message and protection check
+  details_result = GitHubUtils.get_pr_details(str(pr_number), "title,headRefName")
   branch_name = "unknown-branch"
+  pr_title = "Unknown Title"
   should_delete_branch = False  # Default to safe option
 
-  if branch_result.success:
+  if details_result.success:
     try:
-      branch_data = json.loads(branch_result.stdout)
-      branch_name = branch_data.get("headRefName", "unknown-branch")
-      print(f"✅ Retrieved branch name: {branch_name}")
+      pr_data = json.loads(details_result.stdout)
+      branch_name = pr_data.get("headRefName", "unknown-branch")
+      pr_title = pr_data.get("title", "Unknown Title")
+      print(f"✅ Retrieved PR details - Title: '{pr_title}', Branch: '{branch_name}'")
 
       # Check if this branch is protected to determine if we should delete it
       if branch_name != "unknown-branch":
@@ -533,16 +535,16 @@ def merge_pr(pr_number: int, repository: str) -> bool:
         print(f"Will keep branch after merge (unknown branch name - safe default)")
 
     except (json.JSONDecodeError, KeyError) as e:
-      print(f"⚠️ Could not parse branch name for PR #{pr_number}: {e}")
+      print(f"⚠️ Could not parse PR details for PR #{pr_number}: {e}")
       print(f"Will keep branch after merge (safe default)")
-      # Continue with default branch name and safe deletion setting
+      # Continue with default values and safe deletion setting
   else:
-    print(f"⚠️ Could not get branch name for PR #{pr_number}: {branch_result.stderr}")
+    print(f"⚠️ Could not get PR details for PR #{pr_number}: {details_result.stderr}")
     print(f"Will keep branch after merge (safe default)")
-    # Continue with default branch name and safe deletion setting
+    # Continue with default values and safe deletion setting
 
-  # Generate merge message in the required format
-  merge_message = f"[Merge Queue]Merge Pull Request #{pr_number} from {branch_name}"
+  # Generate merge message in the standardized format
+  merge_message = f"[Merge Queue] #{pr_number}-{pr_title}-{branch_name}"
   print(f"Using merge message: '{merge_message}'")
 
   result = GitHubUtils.merge_pr(
