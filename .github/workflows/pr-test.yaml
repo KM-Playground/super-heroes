@@ -8,7 +8,6 @@ on:
     types: [created]
 env:
   GH_TOKEN: ${{ github.token }}
-  SIMULATE_FAILURE: ${{ vars.SIMULATE_FAILURE }} || false
 
 jobs:
   run-tests:
@@ -92,7 +91,9 @@ jobs:
         id: run-tests
         run: |
           echo "Running Maven tests..."
-          mvn clean test
+          simulate=${{ vars.SIMULATE_FAILURE }}
+          echo "SIMULATE_FAILURE: $simulate"
+          mvn -DSIMULATE_FAILURE=$simulate clean test
           echo "Tests completed successfully"
 
       - name: Random delay
