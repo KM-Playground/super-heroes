@@ -14,6 +14,9 @@ The **Merge Queue Drainer** (`automated_pr_merge.yaml`) is a sophisticated GitHu
 - **📈 Detailed Reporting**: Provides comprehensive summary with categorized results
 - **🔄 Intelligent Branch Management**: Automatically updates PR branches and handles merge conflicts
 - **⏱️ Configurable Timeouts**: Flexible timeout settings for CI execution and startup phases
+- **🔔 Immediate Notifications**: Instantly notifies PR creators when failures occur during processing
+- **🏷️ Standardized Merge Messages**: Consistent, informative merge commit messages with PR details
+- **🛡️ Smart Branch Protection**: Uses GitHub API to determine branch deletion based on protection status
 
 ## Prerequisites and Setup
 
@@ -32,6 +35,7 @@ The workflow requires a special token to trigger CI workflows, as GitHub's defau
    - **Expiration**: Set according to your organization's security policy (recommended: 90 days or less)
    - **Repository access**: Select the specific repository or repositories where this workflow will be used
    - **Repository permissions**:
+
      - **Administration**: **Read** access (required to read branch protection rules)
      - **Code**: **Read and Write** access (required for branch operations)
      - **Metadata**: **Read** access (required for basic repository information)
@@ -60,6 +64,7 @@ The workflow uses GitHub Teams to control who can approve and execute merge oper
    - Ensure all team members have appropriate repository access (at minimum: Write access)
 
 **Team member requirements:**
+
 - Must have Write or Admin access to the repository
 - Should be familiar with the codebase and merge policies
 - Should understand the impact of batch merging operations
@@ -76,21 +81,25 @@ GitHub Environments provide the approval gate mechanism that ensures only author
 4. Configure the environment settings:
 
    **Required reviewers:**
+
    - ✅ Enable **"Required reviewers"**
    - Click **"Add reviewers"** and select the `merge-approvals` team created in step 2
    - Set **"Required number of reviewers"**: `1` (or higher based on your organization's policy)
 
    **Deployment branches and tags:**
+
    - Select **"Protected branches only"**
    - This ensures the workflow can only be triggered from protected branches
    - Verify your default branch (e.g., `master` or `main`) appears in the protected branches list
 
    **Wait timer (optional):**
+
    - Leave at `0` minutes unless you want an additional delay before approval
 
 5. Click **"Save protection rules"**
 
 **Important notes:**
+
 - The environment name `merge_queue` is hardcoded in the workflow and must match exactly
 - Only members of the `merge-approvals` team will be able to approve workflow executions
 - The workflow will pause at the approval gate until a team member manually approves it
@@ -109,6 +118,7 @@ The fine-grained personal access token must be stored as a repository secret for
 4. Click **"Add secret"**
 
 **Security considerations:**
+
 - This secret will be accessible to all workflows in the repository
 - Only repository administrators can view or modify secrets
 - The token should be rotated periodically according to your security policy
@@ -121,12 +131,14 @@ The Merge Queue Drainer depends on the **PR Test Runner** workflow to execute CI
 **Required workflow file:** `.github/workflows/pr-test.yaml`
 
 This workflow should:
+
 - Trigger on `issue_comment` events with "Ok to test" comments
 - Execute your project's test suite (Maven, npm, etc.)
 - Set commit status to success/failure
 - Comment on PRs with test results
 
 **Verification steps:**
+
 1. Check that `.github/workflows/pr-test.yaml` exists in your repository
 2. Verify it triggers on "Ok to test" comments
 3. Test it manually by commenting "Ok to test" on a test PR
@@ -156,6 +168,7 @@ This workflow should:
   - If specified, this PR will be merged before processing the main PR list
 
 - **Required Approvals** (optional):
+
   - Override the default approval count from branch protection rules
   - Example: `2`
   - Leave empty to auto-detect from repository settings
@@ -164,154 +177,297 @@ This workflow should:
 
 ### Workflow Execution Process
 
-The workflow executes in several distinct phases:
+The workflow executes through 7 distinct jobs with specific dependencies and conditional execution:
 
-#### Phase 1: Approval Gate 🔒
-- The workflow pauses and waits for manual approval
-- Only members of the `merge-approvals` team can approve
-- Approver identity is recorded for audit purposes
+#### Job 1: Prepare Merge Request Details 📋
+
+- **Purpose**: Logs detailed information about the merge request for approvers
+- **Duration**: ~10 seconds
+- **Outputs**: Displays PR numbers, release PR, target branch, and approval configuration
+- **Key Features**:
+  - Shows comprehensive request summary
+  - Provides workflow run URL for approvers
+  - Displays important warnings and instructions
+
+#### Job 2: Await Manual Approval (SPOC) 🔒
+
+- **Purpose**: Manual approval gate using GitHub Environments
 - **Duration**: Indefinite (until manual approval)
+- **Dependencies**: Requires completion of prepare-approval job
+- **Environment**: Uses `merge_queue` environment with `merge-approvals` team reviewers
+- **Outputs**: Records approver identity for audit purposes
 
-#### Phase 2: Release Merge (Optional) 🚀
-- If a release PR is specified, it's merged first using admin privileges
-- Uses standard merge (not squash) to preserve release branch structure
-- If release merge fails, the entire workflow stops
-- **Duration**: ~30 seconds
+#### Job 3: Merge Release to Master (Optional) 🚀
 
-#### Phase 3: PR Validation ✅
-- Validates all specified PRs simultaneously:
-  - **Existence check**: Verifies PR exists and is open
-  - **Target branch**: Ensures PR targets the default branch
-  - **Merge conflicts**: Checks for conflicts with default branch
-  - **Approvals**: Validates sufficient approvals (auto-detected or manual override)
-  - **Status checks**: Verifies all required status checks are passing
-- Categorizes PRs as "mergeable" or "unmergeable"
+- **Purpose**: Merges release PR first if specified
+- **Duration**: ~30-60 seconds
+- **Dependencies**: Requires approval-gate completion
+- **Conditional**: Only runs if `release_pr` input is provided
+- **Script**: Uses `merge_release_pr.py` for release merge logic
+- **Merge Type**: Uses merge commit (not squash) to preserve release history
+- **Branch Management**: Automatically determines branch deletion based on protection status
+- **Merge Message Format**: `[Merge Queue] #<PRNumber>-<PRTitle>-<BranchName>`
+- **Failure Handling**: If release merge fails, subsequent jobs are skipped
+
+#### Job 4: Validate PRs ✅
+
+- **Purpose**: Comprehensive validation of all specified PRs
 - **Duration**: ~1-2 minutes
+- **Dependencies**: Runs after approval-gate, and only if release merge succeeded (if applicable)
+- **Script**: Uses `validate_prs.py` for validation logic
+- **Validation Checks**:
+  - PR existence and open status
+  - Target branch verification (must target default branch)
+  - Merge conflict detection
+  - Approval count validation (auto-detected or manual override)
+  - Required status checks verification
+- **Outputs**: Categorizes PRs as "mergeable" or "unmergeable"
 
-#### Phase 4: Sequential Merging 🔄
-For each mergeable PR (in chronological order):
+#### Job 5: Merge Validated PRs Sequentially 🔄
 
-1. **Branch Update** (~30 seconds):
-   - Updates PR branch with latest default branch
-   - Resolves any new conflicts that may have emerged
+- **Purpose**: Sequential processing and merging of validated PRs
+- **Duration**: 10-60 minutes per PR (depending on CI duration)
+- **Dependencies**: Only runs if validate-prs job found mergeable PRs
+- **Script**: Uses `merge_prs_sequentially.py` for merge orchestration
+- **Process per PR** (in chronological order):
+  1. **Branch Update** (~30 seconds): Updates PR branch with latest default branch
+     - **Immediate Notification**: PR creator notified instantly if update fails
+  2. **CI Trigger** (~5 seconds): Comments "Ok to test" and captures timestamp
+  3. **CI Startup Wait** (up to 5 minutes): Waits for PR Test Runner workflow to start
+     - **Immediate Notification**: PR creator notified instantly if CI fails to start
+  4. **CI Execution Wait** (up to 45 minutes): Monitors workflow run completion
+     - **Immediate Notification**: PR creator notified instantly if CI fails or times out
+  5. **Merge Operation** (~10 seconds): Squash merges PR with standardized message
+     - **Merge Message Format**: `[Merge Queue] #<PRNumber>-<PRTitle>-<BranchName>`
+     - **Smart Branch Deletion**: Uses GitHub API to check branch protection status
+  6. **Inter-PR Delay**: 10-second wait before processing next PR
 
-2. **CI Trigger** (~5 seconds):
-   - Comments "Ok to test" on the PR
-   - Captures comment timestamp for tracking
+#### Job 6: Process Unmergeable PRs 💬
 
-3. **CI Startup Wait** (up to 5 minutes):
-   - Waits for PR Test Runner workflow to start
-   - Looks for "CI job started" comment with workflow run ID
+- **Purpose**: Comments on PRs that failed validation or merge operations
+- **Duration**: ~1-2 minutes
+- **Dependencies**: Runs after merge-approved job (always condition)
+- **Script**: Uses `process_unmergeable_prs.py` for PR commenting
+- **Actions**:
+  - Comments on initially unmergeable PRs with specific failure reasons
+  - Comments on PRs that failed during merge operations
+  - Updates failed PRs with latest default branch for next attempt
 
-4. **CI Execution Wait** (up to 45 minutes):
-   - Monitors the specific workflow run for completion
-   - Tracks success/failure status
+#### Job 7: Send Summary Notification 📊
 
-5. **Merge Operation** (~10 seconds):
-   - Merges PR using squash merge with admin privileges
-   - Deletes feature branches (preserves release branches)
-   - Waits 10 seconds before processing next PR
-
-#### Phase 5: Notification and Cleanup 📊
-- Comments on failed PRs with specific failure reasons
-- Updates failed PRs with latest default branch for next attempt
-- Generates comprehensive summary report
-- Posts summary to a dedicated commentary issue
+- **Purpose**: Generates and posts comprehensive execution summary
 - **Duration**: ~2-3 minutes
+- **Dependencies**: Always runs after validate-prs and merge-approved jobs complete
+- **Script**: Uses `generate_summary.py` for summary creation
+- **Outputs**:
+  - Posts detailed summary to dedicated commentary issue
+  - Includes categorized results and execution statistics
+  - Records approver identity and execution metadata
 
-**Total estimated time**: 10-60 minutes per PR (depending on CI duration)
+**Total estimated time**: 15-75 minutes (depending on PR count and CI duration)
 
 ### Understanding the Results
 
-The workflow provides detailed categorization of PR outcomes:
+The workflow provides detailed categorization of PR outcomes based on the current implementation:
 
 #### Success Categories ✅
 
 - **✅ Successfully Merged**: PRs that completed the entire process successfully
+  - Passed initial validation (approvals, status checks, no conflicts)
   - Branch was updated with default branch
-  - CI tests passed
-  - Merge operation completed
-  - Branch was deleted (for feature branches)
+  - CI tests passed within timeout limits
+  - Merge operation completed using squash merge with standardized message format
+  - Branch deletion handled intelligently based on GitHub protection status
+  - Merge message format: `[Merge Queue] #<PRNumber>-<PRTitle>-<BranchName>`
 
 #### Failure Categories ❌
 
-- **❌ Initial Validation Failures**: PRs that failed pre-merge validation
-  - Insufficient approvals (less than required count)
-  - Failing or missing status checks
-  - Not up-to-date with default branch
+The workflow categorizes failures into specific types for better troubleshooting:
+
+- **❌ Initial Validation Failures (Unmergeable)**: PRs that failed pre-merge validation
+  - Insufficient approvals (less than required count from branch protection or override)
+  - Failing or missing required status checks
+  - Merge conflicts with default branch
   - Not targeting the default branch
-  - Merge conflicts detected
+  - PR is closed or in draft state
+  - Branch protection rule violations
 
 - **🔄 Failed Update**: PRs where branch update with default branch failed
-  - Usually indicates complex merge conflicts
-  - May require manual resolution
+  - Complex merge conflicts that couldn't be auto-resolved
+  - Branch protection preventing force updates
+  - Git operation failures during branch synchronization
+  - **Immediate Notification**: PR creator is instantly notified with specific error details and resolution steps
 
 - **🧪 Failed CI**: PRs where CI tests failed after branch update
   - Test failures in the updated code
   - Build errors or compilation issues
+  - CI workflow returned failure status
+  - **Immediate Notification**: PR creator is instantly notified with workflow run links and common troubleshooting steps
 
-- **⏰ CI Execution Timeout**: PRs where CI didn't complete within 45 minutes
-  - Long-running tests or performance issues
-  - CI infrastructure problems
+- **⏰ CI Execution Timeout**: PRs where CI didn't complete within 45 minutes (configurable)
+  - Long-running tests exceeding MAX_WAIT_SECONDS
+  - CI infrastructure performance issues
+  - Workflow run stuck or hanging
+  - **Immediate Notification**: PR creator is instantly notified with timeout details and optimization suggestions
 
-- **🚀 CI Startup Timeout**: PRs where CI workflow didn't start within 5 minutes
-  - GitHub Actions queue delays
-  - Workflow configuration issues
+- **🚀 CI Startup Timeout**: PRs where CI workflow didn't start within 5 minutes (configurable)
+  - GitHub Actions queue delays during peak times
+  - PR Test Runner workflow configuration issues
+  - CI_TRIGGER_TOKEN permission problems
+  - **Immediate Notification**: PR creator is instantly notified with startup failure details and system troubleshooting steps
 
 - **💥 Failed Merge**: PRs where the final merge operation failed
-  - Last-minute conflicts or branch protection changes
-  - GitHub API errors during merge
+  - Last-minute branch protection rule changes
+  - Concurrent modifications to PR during workflow execution
+  - GitHub API errors or rate limiting during merge
+  - Admin privilege issues with CI_TRIGGER_TOKEN
 
 #### Result Locations 📍
 
-Results are communicated through multiple channels:
+Results are communicated through multiple channels for comprehensive tracking:
 
-1. **Workflow Summary**: Visible in the GitHub Actions run page
-2. **PR Comments**: Individual failure reasons posted on each failed PR
-3. **Commentary Issue**: Comprehensive summary posted to a dedicated repository issue
-4. **Console Logs**: Detailed execution logs in the workflow run
+1. **Workflow Summary**: Visible in the GitHub Actions run page with job-level status
+2. **Immediate PR Notifications**: Real-time failure notifications posted directly to PRs during processing
+   - Branch update failures with specific error details and resolution steps
+   - CI startup timeouts with system troubleshooting guidance
+   - CI test failures with workflow run links and debugging tips
+   - CI execution timeouts with performance optimization suggestions
+3. **PR Comments**: Individual failure reasons posted on each failed PR by `process_unmergeable_prs.py`
+4. **Commentary Issue**: Comprehensive summary posted to a dedicated repository issue by `generate_summary.py`
+5. **Console Logs**: Detailed execution logs in each workflow job with debug information
+6. **Job Outputs**: Structured data passed between jobs for programmatic access
 
 ## Configuration Details
 
 ### Environment Variables and Timeouts
 
-The workflow uses several configurable timeouts that can be adjusted in the workflow file:
+The workflow uses several configurable timeouts and parameters that can be adjusted in the `merge-approved` job:
 
 ```yaml
 env:
+  MERGEABLE_PRS: ${{ needs.validate-prs.outputs.mergeable_prs }}
+  DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+  REPOSITORY: ${{ github.repository }}
   MAX_WAIT_SECONDS: "2700"    # 45 minutes - CI execution timeout
   CHECK_INTERVAL: "30"        # 30 seconds - Status check frequency
   MAX_STARTUP_WAIT: "300"     # 5 minutes - CI startup timeout
+  GH_TOKEN: ${{ secrets.CI_TRIGGER_TOKEN }}  # Token for GitHub operations
 ```
 
-**Timeout explanations:**
-- **MAX_WAIT_SECONDS**: Maximum time to wait for CI completion per PR
-- **CHECK_INTERVAL**: How often to check CI status during execution
-- **MAX_STARTUP_WAIT**: Maximum time to wait for CI workflow to start
+**Configuration explanations:**
+
+- **MAX_WAIT_SECONDS**: Maximum time to wait for CI completion per PR (default: 45 minutes)
+- **CHECK_INTERVAL**: How often to check CI status during execution (default: 30 seconds)
+- **MAX_STARTUP_WAIT**: Maximum time to wait for CI workflow to start (default: 5 minutes)
+- **GH_TOKEN**: Uses CI_TRIGGER_TOKEN for GitHub CLI operations and workflow triggering
+
+**Additional job-specific environment variables:**
+
+- **MERGEABLE_PRS**: JSON array of validated mergeable PRs passed from validate-prs job
+- **DEFAULT_BRANCH**: Repository's default branch name (auto-detected)
+- **REPOSITORY**: Full repository name (owner/repo format)
+- **REQUIRED_APPROVALS**: Number of required approvals (auto-detected or overridden)
 
 ### Branch Handling Logic
 
-The workflow intelligently handles different branch types:
+The workflow intelligently handles different branch types using GitHub's branch protection API:
 
-**Feature Branches:**
-- Deleted after successful merge
-- Patterns: Any branch not matching release patterns
+**Smart Branch Deletion Logic:**
 
-**Release Branches:**
-- Preserved after merge (not deleted)
-- Patterns: Contains "release", "rel-", "hotfix", "patch", or "master"
+- **Protected Branches**: Automatically preserved after merge (not deleted)
+  - Determined by real-time GitHub API calls to check branch protection rules
+  - Includes release branches, long-running feature branches, and default branches
+  - No guesswork based on branch naming patterns
+- **Non-Protected Branches**: Automatically deleted after successful merge
+  - Typical feature branches and short-lived development branches
+  - Deletion occurs immediately after successful merge operation
+  - Helps maintain repository cleanliness
+
+**Branch Protection Detection:**
+
+- Uses `GitHubUtils.is_branch_protected()` method with GitHub API integration
+- API endpoint: `gh api repos/OWNER/REPO/branches/BRANCH_NAME/protection`
+- Handles API responses gracefully (404 = not protected, 200 = protected)
+- Logs branch deletion decisions for full audit trail
+- Safe defaults: when in doubt, branches are preserved
+
+**Merge Message Standardization:**
+
+- **Consistent Format**: `[Merge Queue] #<PRNumber>-<PRTitle>-<BranchName>`
+- **Information Rich**: Contains PR number, descriptive title, and source branch
+- **Searchable**: Easy to find in git history by PR#, keywords, or branch names
+- **Examples**:
+  - `[Merge Queue] #123-Add user authentication feature-feature/user-auth`
+  - `[Merge Queue] #456-Release v2.1.0 - Bug fixes-release/v2.1.0`
+
+**Special Handling:**
+
+- **Release PR**: If specified, merged first using merge commit (not squash)
+- **Regular PRs**: Merged using squash merge with standardized messages
+- **Default Branch**: Never deleted (inherently protected)
+- **Failed Merges**: Branches are not deleted if merge operation fails
+
+### Immediate Notification System 🔔
+
+The workflow provides real-time feedback to PR creators when issues occur during processing:
+
+**Notification Triggers:**
+
+- **Branch Update Failures**: When PR branch cannot be updated with default branch
+  - Includes specific error details and merge conflict resolution steps
+  - Posted immediately when `update_pr_branch` operation fails
+- **CI Startup Timeouts**: When CI workflow fails to start within 5 minutes
+  - Explains system-level issues and troubleshooting steps
+  - Posted immediately when no "CI job started" comment is received
+- **CI Test Failures**: When automated tests fail during execution
+  - Includes workflow run links and common failure causes
+  - Posted immediately when CI workflow returns failure status
+- **CI Execution Timeouts**: When tests don't complete within 45 minutes
+  - Provides performance optimization suggestions and debugging tips
+  - Posted immediately when maximum wait time is exceeded
+
+**Notification Benefits:**
+
+- **Immediate Feedback**: PR creators know about issues within seconds of occurrence
+- **Actionable Guidance**: Each notification includes specific steps to resolve the problem
+- **Non-Blocking**: Merge queue continues processing other PRs while creators fix issues
+- **Professional Format**: Well-structured messages with clear explanations and helpful links
+- **Audit Trail**: All notifications are preserved as PR comments for future reference
+
+**Sample Notification Format:**
+
+```
+@username ❌ **CI Tests Failed**
+
+The automated tests for this PR have failed during the merge queue process.
+
+**Failure Details:**
+• **Workflow**: CI Tests
+• **Run ID**: 12345678901
+• **Conclusion**: failure
+
+**Next Steps:**
+1. Check the workflow run logs for detailed error information
+2. Fix the failing tests in your branch
+3. Push the fixes to your branch
+4. The PR will be ready for the next merge cycle
+
+*This comment was automatically generated by the merge queue workflow.*
+```
 
 ### Required Permissions
 
 The workflow requires specific GitHub permissions:
 
 **CI_TRIGGER_TOKEN permissions:**
+
 - `contents: write` - For branch operations and merging
 - `pull-requests: write` - For commenting and triggering workflows
 - `administration: read` - For reading branch protection rules
 - `metadata: read` - For basic repository information
 
 **Workflow job permissions:**
+
 - `contents: write` - For merge operations
 - `pull-requests: write` - For PR comments and updates
 - `issues: write` - For summary issue creation
@@ -322,6 +478,7 @@ The workflow requires specific GitHub permissions:
 ### For Users (PR Authors and Reviewers)
 
 **Before triggering the workflow:**
+
 - ✅ Ensure all PRs are ready for merge and fully reviewed
 - ✅ Resolve any merge conflicts beforehand
 - ✅ Verify that all required approvals are in place
@@ -330,6 +487,7 @@ The workflow requires specific GitHub permissions:
 - ✅ Test PRs individually if they have complex interactions
 
 **PR preparation checklist:**
+
 - [ ] All required reviewers have approved
 - [ ] CI tests are passing
 - [ ] No merge conflicts with default branch
@@ -339,6 +497,7 @@ The workflow requires specific GitHub permissions:
 ### For Administrators and SPOCs
 
 **Security and maintenance:**
+
 - 🔐 Regularly review and update `merge-approvals` team membership
 - 🔄 Rotate the `CI_TRIGGER_TOKEN` periodically (every 90 days recommended)
 - 📊 Monitor workflow execution times and adjust timeouts if needed
@@ -346,12 +505,14 @@ The workflow requires specific GitHub permissions:
 - 📋 Audit workflow usage through GitHub's audit logs
 
 **Performance optimization:**
+
 - 📈 Monitor CI execution times and optimize slow tests
 - 🚀 Consider splitting large PR batches if timeouts occur frequently
 - 🔍 Review failed PRs to identify common patterns
 - ⚡ Optimize the pr-test.yaml workflow for faster execution
 
 **Team management:**
+
 - 👥 Ensure merge-approvals team members understand the workflow
 - 📚 Provide training on batch merge best practices
 - 🚨 Establish escalation procedures for workflow failures
@@ -364,15 +525,18 @@ The workflow requires specific GitHub permissions:
 #### 🔒 Approval Gate Issues
 
 **Problem**: Workflow fails at approval gate or shows "Waiting for approval"
+
 **Symptoms**: Workflow stuck at "Await Manual Approval (SPOC)" step
 
 **Solutions**:
+
 - ✅ Ensure the user triggering the workflow is a member of the `merge-approvals` team
 - ✅ Verify the `merge_queue` environment exists and is properly configured
 - ✅ Check that the environment has the `merge-approvals` team as required reviewers
 - ✅ Confirm the triggering user has appropriate repository permissions
 
 **Verification steps**:
+
 ```bash
 # Check if user is in the team (replace with actual username)
 gh api orgs/YOUR_ORG/teams/merge-approvals/members/USERNAME
@@ -384,12 +548,14 @@ gh api orgs/YOUR_ORG/teams/merge-approvals/members/USERNAME
 **Symptoms**: Workflow times out waiting for CI job started comment
 
 **Solutions**:
+
 - ✅ Verify the `CI_TRIGGER_TOKEN` has correct permissions (see Configuration Details)
 - ✅ Ensure `.github/workflows/pr-test.yaml` exists and is properly configured
 - ✅ Check that the token hasn't expired
 - ✅ Verify the pr-test.yaml workflow triggers on "Ok to test" comments
 
 **Verification steps**:
+
 ```bash
 # Test the token permissions
 gh auth status --token $CI_TRIGGER_TOKEN
@@ -407,6 +573,7 @@ gh pr comment PR_NUMBER --body "Ok to test"
 **Symptoms**: PRs appear in "Initial Validation Failures" category
 
 **Common causes and solutions**:
+
 - **Merge conflicts**: Update PR branch manually or resolve conflicts
 - **Insufficient approvals**: Ensure required number of approvals are present
 - **Wrong target branch**: Verify PR targets the default branch (master/main)
@@ -414,6 +581,7 @@ gh pr comment PR_NUMBER --body "Ok to test"
 - **Branch protection violations**: Review and comply with branch protection rules
 
 **Verification steps**:
+
 ```bash
 # Check PR status
 gh pr view PR_NUMBER --json mergeable,reviews,statusCheckRollup
@@ -428,6 +596,7 @@ gh api repos/OWNER/REPO/branches/BRANCH_NAME/protection
 **Symptoms**: PRs appear in "Merge Operation Failed" category
 
 **Solutions**:
+
 - ✅ Review branch protection rules for recent changes
 - ✅ Check for last-minute commits that might cause conflicts
 - ✅ Verify the `CI_TRIGGER_TOKEN` has admin privileges if using `--admin` flag
@@ -439,12 +608,14 @@ gh api repos/OWNER/REPO/branches/BRANCH_NAME/protection
 **Symptoms**: PRs in "CI Execution Timeout" or "CI Startup Timeout" categories
 
 **Solutions**:
+
 - 🔧 **For CI Execution Timeouts**: Increase `MAX_WAIT_SECONDS` in workflow
 - 🔧 **For CI Startup Timeouts**: Increase `MAX_STARTUP_WAIT` in workflow
 - 🚀 **Performance**: Optimize CI tests for faster execution
 - 📊 **Monitoring**: Check GitHub Actions queue status during peak times
 
 **Configuration adjustments**:
+
 ```yaml
 env:
   MAX_WAIT_SECONDS: "3600"    # Increase to 60 minutes
@@ -512,6 +683,7 @@ If issues persist after following this troubleshooting guide:
 ### Token Security 🔐
 
 **CI_TRIGGER_TOKEN Protection:**
+
 - 🔒 Treat as a highly sensitive credential equivalent to admin access
 - 🔄 Rotate every 90 days or according to your organization's security policy
 - 📊 Monitor usage through GitHub's audit logs and security events
@@ -519,6 +691,7 @@ If issues persist after following this troubleshooting guide:
 - 🏢 Consider using GitHub Apps instead of personal access tokens for better security
 
 **Access Control:**
+
 - 👥 Limit `merge-approvals` team to essential personnel only
 - 🔍 Regularly audit team membership (quarterly recommended)
 - 📋 Document team member roles and responsibilities
@@ -527,12 +700,14 @@ If issues persist after following this troubleshooting guide:
 ### Workflow Security 🛡️
 
 **Execution Controls:**
+
 - 🔒 Workflow can only be triggered manually (no automatic triggers)
 - ✅ Requires explicit approval from authorized team members
 - 📝 All executions are logged and auditable
 - 🎯 Limited to protected branches only through environment configuration
 
 **Data Protection:**
+
 - 🔐 No sensitive data is logged in workflow outputs
 - 📊 PR numbers and basic metadata only are recorded
 - 🚫 No access to PR content or code during execution
@@ -541,12 +716,14 @@ If issues persist after following this troubleshooting guide:
 ### Audit and Monitoring 📊
 
 **Regular Security Reviews:**
+
 - 📅 Monthly review of workflow execution logs
 - 👥 Quarterly audit of team membership and permissions
 - 🔍 Annual review of token permissions and scope
 - 📋 Document all security incidents and resolutions
 
 **Monitoring Checklist:**
+
 - [ ] Token expiration dates and renewal schedule
 - [ ] Team membership changes and access reviews
 - [ ] Workflow execution patterns and anomalies
@@ -558,6 +735,7 @@ If issues persist after following this troubleshooting guide:
 ### Core Dependencies 🔗
 
 **1. PR Test Runner (`pr-test.yaml`)**
+
 - **Purpose**: Executes CI tests when "Ok to test" comments are posted
 - **Triggers**: `issue_comment` events with specific comment body
 - **Requirements**:
@@ -567,6 +745,7 @@ If issues persist after following this troubleshooting guide:
 - **Integration**: Merge workflow monitors this workflow's execution and status
 
 **2. Branch Protection Rules**
+
 - **Purpose**: Enforces approval requirements and merge restrictions
 - **Configuration**: Must be set on default branch (master/main)
 - **Requirements**:
@@ -576,6 +755,7 @@ If issues persist after following this troubleshooting guide:
 - **Integration**: Workflow validates PRs against these rules
 
 **3. GitHub Environments**
+
 - **Purpose**: Provides manual approval gate mechanism
 - **Configuration**: `merge_queue` environment with required reviewers
 - **Requirements**:
@@ -586,16 +766,19 @@ If issues persist after following this troubleshooting guide:
 ### Supporting Components 🔧
 
 **4. Repository Secrets**
+
 - **CI_TRIGGER_TOKEN**: Fine-grained personal access token
 - **Purpose**: Enables workflow to trigger other workflows via comments
 - **Scope**: Repository-specific with minimal required permissions
 
 **5. GitHub Teams**
+
 - **merge-approvals**: Team of authorized merge operators
 - **Purpose**: Controls who can approve and execute merge operations
 - **Membership**: Senior developers, team leads, and SPOCs
 
 **6. Commentary Issue System**
+
 - **Purpose**: Centralized location for merge summaries and history
 - **Creation**: Automatically created by workflow if not exists
 - **Naming**: "PR Merge Commentary" issue in the repository
@@ -621,6 +804,7 @@ graph TD
 ### Compatibility Requirements 📋
 
 **GitHub Features:**
+
 - GitHub Actions (required)
 - GitHub Environments (required)
 - GitHub Teams (required for organizations)
@@ -628,11 +812,13 @@ graph TD
 - Branch Protection Rules (recommended)
 
 **Repository Structure:**
+
 - `.github/workflows/automated_pr_merge.yaml` (main workflow)
 - `.github/workflows/pr-test.yaml` (CI test runner)
 - `.github/scripts/` directory with Python support scripts
 
 **External Dependencies:**
+
 - Python 3.13+ runtime (provided by GitHub Actions)
 - GitHub CLI (`gh` command) (pre-installed in GitHub Actions)
 - Standard Unix utilities (bash, jq, etc.)
@@ -640,6 +826,7 @@ graph TD
 ### Customization Points 🎛️
 
 **Configurable Elements:**
+
 - Timeout values (CI execution, startup, check intervals)
 - Approval requirements (can override branch protection)
 - Branch naming patterns for release detection
@@ -647,6 +834,7 @@ graph TD
 - Summary report formatting
 
 **Extension Opportunities:**
+
 - Custom validation rules in `validate_prs.py`
 - Additional notification channels (Slack, email, etc.)
 - Custom merge strategies beyond squash merge
@@ -660,16 +848,26 @@ graph TD
 **Scenario**: Merging 5 feature PRs after a sprint completion
 
 **Input Parameters**:
+
 - PR Numbers: `1234,1235,1236,1237,1238`
 - Release PR: (leave empty)
 - Required Approvals: (leave empty - auto-detect)
 
 **Expected Flow**:
+
 1. Approval gate requires manual approval
 2. All 5 PRs validated simultaneously
 3. PRs processed in order: #1234 → #1235 → #1236 → #1237 → #1238
 4. Each PR: branch update → CI trigger → CI wait → merge
 5. Summary posted with results
+
+**Expected Merge Messages**:
+
+- `[Merge Queue] #1234-Implement user login system-feature/user-auth`
+- `[Merge Queue] #1235-Fix database connection timeout-bugfix/db-timeout`
+- `[Merge Queue] #1236-Add API documentation-task/api-docs`
+- `[Merge Queue] #1237-Update dependencies to latest versions-chore/deps-update`
+- `[Merge Queue] #1238-Optimize query performance-perf/query-optimization`
 
 **Estimated Duration**: 15-45 minutes (depending on CI times)
 
@@ -678,15 +876,23 @@ graph TD
 **Scenario**: Deploying a release branch followed by hotfixes
 
 **Input Parameters**:
+
 - PR Numbers: `1240,1241`
 - Release PR: `1239`
 - Required Approvals: (leave empty)
 
 **Expected Flow**:
+
 1. Approval gate requires manual approval
 2. Release PR #1239 merged first (preserved branch)
 3. Feature PRs #1240 and #1241 validated and processed
 4. Summary includes release merge status
+
+**Expected Merge Messages**:
+
+- `[Merge Queue] #1239-Release v2.1.0 - Bug fixes and improvements-release/v2.1.0` (merge commit)
+- `[Merge Queue] #1240-Critical security patch-hotfix/security-fix` (squash merge)
+- `[Merge Queue] #1241-Update user interface components-feature/ui-update` (squash merge)
 
 **Estimated Duration**: 20-50 minutes
 
@@ -695,11 +901,13 @@ graph TD
 **Scenario**: Emergency fixes requiring expedited merge
 
 **Input Parameters**:
+
 - PR Numbers: `1242,1243`
 - Release PR: (leave empty)
 - Required Approvals: `1` (override normal requirement of 2)
 
 **Expected Flow**:
+
 1. Approval gate (expedited approval process)
 2. PRs validated with reduced approval requirement
 3. Fast-track processing with standard CI validation
@@ -712,6 +920,7 @@ graph TD
 ### Setup Checklist ✅
 
 **Prerequisites (one-time setup):**
+
 - [ ] Fine-grained personal access token created with correct permissions
 - [ ] `merge-approvals` team created with appropriate members
 - [ ] `merge_queue` environment configured with team as required reviewers
@@ -719,6 +928,7 @@ graph TD
 - [ ] `pr-test.yaml` workflow present and functional
 
 **Pre-execution checklist:**
+
 - [ ] All target PRs are ready for merge
 - [ ] Required approvals are in place
 - [ ] No merge conflicts exist
@@ -744,26 +954,31 @@ graph TD
 ### Common Commands 💻
 
 **Check team membership:**
+
 ```bash
 gh api orgs/YOUR_ORG/teams/merge-approvals/members
 ```
 
 **Verify token permissions:**
+
 ```bash
 gh auth status --token $CI_TRIGGER_TOKEN
 ```
 
 **Test CI trigger manually:**
+
 ```bash
 gh pr comment PR_NUMBER --body "Ok to test"
 ```
 
 **Check PR merge status:**
+
 ```bash
 gh pr view PR_NUMBER --json mergeable,reviews,statusCheckRollup
 ```
 
 **View workflow runs:**
+
 ```bash
 gh run list --workflow="automated_pr_merge.yaml"
 ```
@@ -771,42 +986,93 @@ gh run list --workflow="automated_pr_merge.yaml"
 ### Emergency Procedures 🚨
 
 **If workflow gets stuck:**
+
 1. Check approval gate - ensure team member approves
 2. Monitor GitHub Actions status page for platform issues
 3. Cancel workflow if necessary: `gh run cancel RUN_ID`
 4. Re-run with remaining PRs after identifying completed ones
 
 **If CI tests fail repeatedly:**
+
 1. Check pr-test.yaml workflow configuration
 2. Verify CI_TRIGGER_TOKEN permissions and expiration
 3. Test manual "Ok to test" comment on a sample PR
 4. Review GitHub Actions logs for specific error messages
 
 **If merge operations fail:**
+
 1. Check branch protection rule changes
 2. Verify admin permissions on CI_TRIGGER_TOKEN
 3. Look for last-minute commits causing conflicts
 4. Consider manual merge for problematic PRs
 
+### Recent Enhancements 🚀
+
+**Latest improvements to the workflow:**
+
+**Immediate Notification System:**
+
+- PR creators receive instant feedback when issues occur
+- No more waiting until the end of the workflow to know about problems
+- Actionable guidance provided for each type of failure
+- Enables faster problem resolution and reduced cycle times
+
+**Standardized Merge Messages:**
+
+- Consistent format: `[Merge Queue] #<PRNumber>-<PRTitle>-<BranchName>`
+- Easy to search git history by PR number, keywords, or branch names
+- Rich information content in a single line
+- Better traceability and audit capabilities
+
+**Smart Branch Management:**
+
+- Uses GitHub API to determine branch protection status
+- No more guesswork based on branch naming patterns
+- Automatically preserves important branches (releases, long-running features)
+- Automatically cleans up temporary branches (features, bugfixes)
+
 ### Support and Maintenance 🔧
 
 **Regular maintenance tasks:**
-- 📅 **Weekly**: Review failed workflow executions and patterns
-- 📅 **Monthly**: Audit merge-approvals team membership
-- 📅 **Quarterly**: Rotate CI_TRIGGER_TOKEN and update secret
-- 📅 **Annually**: Review and update workflow configuration and timeouts
+
+- 📅 **Weekly**: Review failed workflow executions and immediate notification effectiveness
+- 📅 **Monthly**: Audit merge-approvals team membership and notification patterns
+- 📅 **Quarterly**: Rotate CI_TRIGGER_TOKEN and review branch protection rules
+- 📅 **Annually**: Review and update workflow configuration, timeouts, and notification templates
 
 **Performance monitoring:**
-- Track average CI execution times
-- Monitor workflow success rates
-- Identify common failure patterns
-- Optimize timeout settings based on actual usage
+
+- Track average CI execution times and notification response times
+- Monitor workflow success rates and immediate feedback effectiveness
+- Identify common failure patterns and notification accuracy
+- Optimize timeout settings and notification content based on actual usage
 
 **Documentation updates:**
+
 - Keep this documentation current with any workflow changes
 - Document any custom modifications or extensions
 - Share best practices and lessons learned with the team
 - Update troubleshooting guide based on new issues encountered
+- Maintain notification template examples and customization options
+
+---
+
+## Summary
+
+The **Automated PR Merge Queue Drainer** provides a comprehensive, enterprise-grade solution for batch merging pull requests with the following key capabilities:
+
+* ✅ **Manual approval gates** for controlled execution
+* ✅ **Sequential processing** with intelligent ordering
+* ✅ **Comprehensive validation** against branch protection rules
+* ✅ **Automated CI testing** with real-time monitoring
+* ✅ **Immediate notifications** for instant feedback to developers
+* ✅ **Standardized merge messages** for better traceability
+* ✅ **Smart branch management** using GitHub API protection status
+* ✅ **Detailed reporting** with categorized results and audit trails
+* ✅ **Configurable timeouts** for different environments
+* ✅ **Professional error handling** with actionable guidance
+
+The workflow is designed to handle production-scale merge operations while maintaining code quality, providing developer feedback, and ensuring audit compliance. With recent enhancements including immediate notifications and smart branch management, it offers a superior developer experience while maintaining operational reliability.
 
 ---
 
