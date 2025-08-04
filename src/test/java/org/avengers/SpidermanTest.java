@@ -18,11 +18,14 @@ public class SpidermanTest {
      */
     @Test
     public void shouldAnswerWithTrue() {
-        boolean flag = random.nextInt(10) % 2 == 0;
-        if (flag) {
-            assertTrue(true);
-        } else {
-            fail();
+        String simulateFailure = System.getProperty("SIMULATE_FAILURE", "false");
+        if ("true".equalsIgnoreCase(simulateFailure)) {
+            boolean flag = random.nextInt(10) % 2 == 0;
+            if (flag) {
+                assertTrue(true);
+            } else {
+                fail();
+            }
         }
     }
 }
