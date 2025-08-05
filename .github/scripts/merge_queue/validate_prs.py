@@ -68,7 +68,7 @@ def get_required_approvals(manual_approvals: str, repository: str, default_branc
 def get_pr_info(pr_number: str) -> Optional[Dict]:
     """Get PR information using GitHub CLI."""
     result = GitHubUtils.get_pr_details(pr_number,
-        "baseRefName,mergeable,headRefName,reviews,statusCheckRollup,state")
+        "baseRefName,mergeable,headRefName,reviews,statusCheckRollup,state,author")
 
     if not result.success:
         print(f"❌ Failed to get info for PR #{pr_number}: {result.stderr}")
@@ -94,6 +94,89 @@ def get_failing_checks(status_checks: List[Dict]) -> List[str]:
         if state not in ["SUCCESS"]:
             failing.append(f"{check.get('context', 'unknown')}:{state}")
     return failing
+
+
+def notify_pr_owner_about_base_branch(pr_number: str, author: str, current_base: str, expected_base: str) -> None:
+    """Notify PR owner about incorrect base branch."""
+    print(f"📢 Notifying @{author} about base branch issue on PR #{pr_number}")
+
+    notification_message = f"""⚠️ **Base Branch Issue - Action Required**
+
+@{author}, your PR #{pr_number} is targeting the `{current_base}` branch, but the merge queue requires all PRs to target the default branch `{expected_base}`.
+
+**Required Action:**
+1. Change the base branch of this PR from `{current_base}` to `{expected_base}`
+2. Resolve any merge conflicts that may arise
+3. Ensure all status checks pass
+
+**How to Change Base Branch:**
+- Go to your PR page
+- Click "Edit" next to the PR title
+- Change the base branch to `{expected_base}`
+- Update your branch if needed: `git rebase origin/{expected_base}`
+
+**Why This Matters:**
+The merge queue is designed to merge PRs sequentially into the default branch (`{expected_base}`) to maintain a clean, linear history.
+
+*This is an automated notification from the merge queue validation process.*"""
+
+    result = GitHubUtils.comment_on_pr(pr_number, notification_message)
+    if result.success:
+        print(f"✅ Successfully notified @{author} about base branch issue on PR #{pr_number}")
+    else:
+        print(f"⚠️ Failed to notify @{author} about base branch issue on PR #{pr_number}: {result.error_details}")
+
+
+def notify_pr_owner_about_conflicts(pr_number: str, author: str, base_branch: str) -> None:
+    """Notify PR owner about merge conflicts."""
+    print(f"📢 Notifying @{author} about merge conflicts on PR #{pr_number}")
+
+    notification_message = f"""⚠️ **Merge Conflicts Detected - Action Required**
+
+@{author}, your PR #{pr_number} has merge conflicts with the `{base_branch}` branch and cannot be merged automatically.
+
+**Required Action:**
+1. Update your branch with the latest changes from `{base_branch}`
+2. Resolve all merge conflicts
+3. Push the resolved changes to your branch
+4. Ensure all status checks pass
+
+**Why This Matters:**
+The merge queue requires all PRs to be conflict-free to ensure smooth, automated merging and maintain repository stability.
+
+*This is an automated notification from the merge queue validation process.*"""
+
+    result = GitHubUtils.comment_on_pr(pr_number, notification_message)
+    if result.success:
+        print(f"✅ Successfully notified @{author} about merge conflicts on PR #{pr_number}")
+    else:
+        print(f"⚠️ Failed to notify @{author} about merge conflicts on PR #{pr_number}: {result.error_details}")
+
+
+def notify_pr_owner_about_insufficient_approvals(pr_number: str, author: str, current_approvals: int, required_approvals: int) -> None:
+    """Notify PR owner about insufficient approvals."""
+    print(f"📢 Notifying @{author} about insufficient approvals on PR #{pr_number}")
+
+    notification_message = f"""⚠️ **Insufficient Approvals - Action Required**
+
+@{author}, your PR #{pr_number} currently has {current_approvals} approval(s), but {required_approvals} approval(s) are required for merging.
+
+**Required Action:**
+1. Request reviews from team members or maintainers
+2. Address any feedback or requested changes
+3. Ensure your PR meets all review criteria
+4. Wait for the required number of approvals
+
+**Why This Matters:**
+The merge queue enforces approval requirements to ensure code quality and maintain proper review processes before merging.
+
+*This is an automated notification from the merge queue validation process.*"""
+
+    result = GitHubUtils.comment_on_pr(pr_number, notification_message)
+    if result.success:
+        print(f"✅ Successfully notified @{author} about insufficient approvals on PR #{pr_number}")
+    else:
+        print(f"⚠️ Failed to notify @{author} about insufficient approvals on PR #{pr_number}: {result.error_details}")
 
 
 def validate_pr(pr_number: str, required_approvals: int, default_branch: str, pr_type: str = "regular") -> Tuple[bool, List[str]]:
@@ -122,6 +205,7 @@ def validate_pr(pr_number: str, required_approvals: int, default_branch: str, pr
     pr_state = pr_info.get("state", "")
     reviews = pr_info.get("reviews", [])
     status_checks = pr_info.get("statusCheckRollup", [])
+    author = pr_info.get("author", {}).get("login", "")
 
     approval_count = count_approvals(reviews)
     failing_checks = get_failing_checks(status_checks)
@@ -150,12 +234,20 @@ def validate_pr(pr_number: str, required_approvals: int, default_branch: str, pr
         reason = f"Does not target '{default_branch}' (targets '{base_branch}') - all PRs must target the default branch '{default_branch}'"
         print(f"❌ PR #{pr_number} {reason}")
         failure_reasons.append(reason)
+
+        # Notify PR owner about the base branch issue
+        if author:
+            notify_pr_owner_about_base_branch(pr_number, author, base_branch, default_branch)
     
     # Check merge conflicts
     if mergeable_state == "CONFLICTING":
         reason = f"Has merge conflicts (state={mergeable_state})"
         print(f"❌ PR #{pr_number} {reason}")
         failure_reasons.append(reason)
+
+        # Notify PR owner about merge conflicts
+        if author:
+            notify_pr_owner_about_conflicts(pr_number, author, default_branch)
     elif mergeable_state == "UNKNOWN":
         print(f"⚠️ PR #{pr_number} mergeable state is unknown - will proceed and let GitHub decide")
     
@@ -164,6 +256,10 @@ def validate_pr(pr_number: str, required_approvals: int, default_branch: str, pr
         reason = f"Has {approval_count} approvals, but {required_approvals} are required"
         print(f"❌ PR #{pr_number} {reason}")
         failure_reasons.append(reason)
+
+        # Notify PR owner about insufficient approvals
+        if author:
+            notify_pr_owner_about_insufficient_approvals(pr_number, author, approval_count, required_approvals)
     
     # Check status checks
     if failing_checks:
