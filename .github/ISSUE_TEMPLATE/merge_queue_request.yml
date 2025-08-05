@@ -1,0 +1,80 @@
+name: 🚀 Merge Queue Request
+description: Request automated batch merging of pull requests using the Merge Queue Drainer
+title: "[Merge Queue] Batch Merge Request - "
+labels: ["merge-queue", "automation"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Merge Queue Request
+        
+        Use this form to request automated batch merging of pull requests. Please ensure all PRs are ready for merge before submitting this request.
+        
+        **Prerequisites:**
+        - ✅ All PRs have required approvals
+        - ✅ All CI tests are passing
+        - ✅ No merge conflicts exist
+        - ✅ PRs target the default branch
+        - ✅ You are a member of the `merge-approvals` team
+
+  - type: input
+    id: pr_numbers
+    attributes:
+      label: PR Numbers
+      description: Comma-separated list of PR numbers to merge (e.g., 123,124,125)
+      placeholder: "123,124,125"
+    validations:
+      required: true
+
+  - type: input
+    id: release_pr
+    attributes:
+      label: Release PR (Optional)
+      description: Single PR number for a release branch to merge first
+      placeholder: "999"
+    validations:
+      required: false
+
+  - type: input
+    id: required_approvals
+    attributes:
+      label: Required Approvals Override (Optional)
+      description: Override the default approval count from branch protection rules
+      placeholder: "2"
+    validations:
+      required: false
+
+  - type: textarea
+    id: pr_summary
+    attributes:
+      label: PR Summary
+      description: Brief description of what these PRs accomplish
+      placeholder: |
+        Example:
+        - #123: Add user authentication feature
+        - #124: Fix database connection timeout
+        - #125: Update API documentation
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        ## Next Steps
+
+        After submitting this issue:
+
+        1. **Review**: Ensure all information is accurate and PRs are ready
+        2. **Trigger Merge**: Comment `begin-merge` on this issue to start the process
+        3. **Team Notification**: The system will automatically tag the `merge-approvals` team for approval
+        4. **Approval Wait**: The workflow will wait up to 60 minutes for team approval
+        5. **Reminders**: Reminder notifications will be posted every 15 minutes until approval
+        6. **Execution**: Once approved, the merge queue workflow will execute automatically
+
+        ## Important Notes
+
+        - **Timeout**: If no approval is received within 60 minutes, the request will timeout
+        - **Restart**: To restart after timeout, comment `begin-merge` again
+        - **Prevention**: Consecutive executions are prevented - only one merge process per issue
+        - **Monitoring**: Monitor the workflow execution and check for notifications on your PRs
