@@ -302,3 +302,38 @@ class GitHubUtils:
         except json.JSONDecodeError as e:
             print(f"⚠️ Error parsing branch protection data for '{branch}': {e}")
             return False
+
+    @staticmethod
+    def get_all_comments(issue_number: str) -> CommandResult:
+        """Get all comments for an issue or PR."""
+        return GitHubUtils._run_gh_command([
+            "issue", "view", issue_number, "--json", "comments"
+        ])
+
+    @staticmethod
+    def is_team_member(username: str, org: str, team: str) -> bool:
+        """Check if a user is a member of the specified team."""
+        result = GitHubUtils._run_gh_command([
+            "api", f"orgs/{org}/teams/{team}/members/{username}"
+        ], check=False)
+
+        return result.success
+
+    @staticmethod
+    def get_running_workflows(workflow_name: str) -> CommandResult:
+        """Get list of running workflows for a specific workflow file."""
+        return GitHubUtils._run_gh_command([
+            "run", "list",
+            f"--workflow={workflow_name}",
+            "--status=in_progress",
+            "--json", "status,conclusion"
+        ])
+
+    @staticmethod
+    def trigger_workflow(workflow_name: str, inputs_json: str) -> CommandResult:
+        """Trigger a workflow with the specified inputs."""
+        return GitHubUtils._run_gh_command([
+            "workflow", "run", workflow_name,
+            "--json",
+            "--raw-field", f"inputs={inputs_json}"
+        ])
