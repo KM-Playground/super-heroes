@@ -10,54 +10,119 @@ name: Merge Queue Drainer
 # The default GITHUB_TOKEN cannot trigger other workflows via comments due to GitHub's security restrictions.
 
 on:
-  workflow_dispatch:
-    inputs:
-      pr_numbers:
-        description: 'Comma-separated list of PR numbers to merge into the default branch'
-        required: true
-      release_pr:
-        description: 'Optional PR number for merging release into the default branch'
-        required: false
-      required_approvals:
-        description: 'Number of required approvals (leave empty to auto-detect from branch protection)'
-        required: false
+  issue_comment:
+    types: [created]
 
 jobs:
+
+  check-trigger:
+    if: |
+      github.event.issue.state == 'open' &&
+      contains(github.event.comment.body, 'begin-merge') &&
+      contains(github.event.issue.labels.*.name, 'merge-queue')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check for consecutive execution prevention
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          echo "Starting consecutive execution check..."
+          python3 .github/scripts/merge_queue/check_consecutive_execution.py
+
+      - name: Extract PR information from issue
+        id: extract-prs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          echo "Starting PR information extraction..."
+          python3 .github/scripts/merge_queue/extract_pr_info.py
+
+          # Output the extracted values for workflow readability
+          echo "pr_numbers=$EXTRACTED_PR_NUMBERS" >> $GITHUB_OUTPUT
+          echo "release_pr=$EXTRACTED_RELEASE_PR" >> $GITHUB_OUTPUT
+          echo "required_approvals=$EXTRACTED_REQUIRED_APPROVALS" >> $GITHUB_OUTPUT
+
+          echo "✅ Step outputs set:"
+          echo "  pr_numbers: $EXTRACTED_PR_NUMBERS"
+          echo "  release_pr: $EXTRACTED_RELEASE_PR"
+          echo "  required_approvals: $EXTRACTED_REQUIRED_APPROVALS"
+
+      - name: Tag merge-approvals team for approval
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          COMMENTER: ${{ github.event.comment.user.login }}
+          PR_NUMBERS: ${{ steps.extract-prs.outputs.pr_numbers }}
+          RELEASE_PR: ${{ steps.extract-prs.outputs.release_pr }}
+        run: |
+          echo "Starting team approval request..."
+          python3 .github/scripts/merge_queue/tag_team_for_approval.py
+
+      - name: Wait for approval with reminders
+        id: wait-approval
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          TRIGGER_COMMENT_TIME: ${{ github.event.comment.created_at }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          echo "Starting approval wait process..."
+          python3 .github/scripts/merge_queue/wait_for_approval.py
+
+    outputs:
+      pr_numbers: ${{ steps.extract-prs.outputs.pr_numbers }}
+      release_pr: ${{ steps.extract-prs.outputs.release_pr }}
+      required_approvals: ${{ steps.extract-prs.outputs.required_approvals }}
+      approved: ${{ steps.wait-approval.outputs.approved }}
 
   prepare-approval:
     name: Prepare Merge Request Details
     runs-on: ubuntu-latest
+    needs: check-trigger
+    if: needs.check-trigger.outputs.approved == 'true'
     permissions:
       contents: read
     steps:
       - name: Log Merge Request Details
+        env:
+          PR_NUMBERS: ${{ needs.check-trigger.outputs.pr_numbers }}
+          RELEASE_PR: ${{ needs.check-trigger.outputs.release_pr }}
+          REQUIRED_APPROVALS: ${{ needs.check-trigger.outputs.required_approvals }}
         run: |
           echo "=== MERGE QUEUE REQUEST DETAILS ==="
-          echo "Requested by: ${{ github.actor }}"
+          echo "Triggered by: begin-merge comment"
           echo "Repository: ${{ github.repository }}"
           echo "Default branch: ${{ github.event.repository.default_branch }}"
           echo ""
           echo "📋 PRs to merge into ${{ github.event.repository.default_branch }}:"
-          echo "${{ github.event.inputs.pr_numbers }}"
+          echo "$PR_NUMBERS"
           echo ""
-          if [ -n "${{ github.event.inputs.release_pr }}" ]; then
+          if [ -n "$RELEASE_PR" ]; then
             echo "🚀 Release PR to merge into ${{ github.event.repository.default_branch }}:"
-            echo "PR #${{ github.event.inputs.release_pr }}"
+            echo "PR #$RELEASE_PR"
             echo ""
           fi
-          if [ -n "${{ github.event.inputs.required_approvals }}" ]; then
-            echo "✅ Required approvals override: ${{ github.event.inputs.required_approvals }}"
+          if [ -n "$REQUIRED_APPROVALS" ]; then
+            echo "✅ Required approvals override: $REQUIRED_APPROVALS"
           else
             echo "✅ Required approvals: Auto-detect from branch protection"
           fi
-          echo ""
+          echo "=================================="
           echo "⚠️  PLEASE REVIEW THE ABOVE DETAILS BEFORE APPROVING"
           echo "==================================="
 
-
-
-
       - name: Display Detailed Information for Approvers
+        env:
+          PR_NUMBERS: ${{ needs.check-trigger.outputs.pr_numbers }}
+          RELEASE_PR: ${{ needs.check-trigger.outputs.release_pr }}
+          REQUIRED_APPROVALS: ${{ needs.check-trigger.outputs.required_approvals }}
         run: |
           echo ""
           echo "🔄 =============================================="
@@ -65,22 +130,22 @@ jobs:
           echo "=============================================="
           echo ""
           echo "📊 REQUEST SUMMARY:"
-          echo "   • Requested by: ${{ github.actor }}"
+          echo "   • Triggered by: begin-merge comment"
           echo "   • Repository: ${{ github.repository }}"
           echo "   • Target Branch: ${{ github.event.repository.default_branch }}"
           echo "   • Workflow Run: ${{ github.run_id }}"
           echo ""
           echo "📋 PRs TO MERGE INTO '${{ github.event.repository.default_branch }}':"
-          echo "   ${{ github.event.inputs.pr_numbers }}"
+          echo "   $PR_NUMBERS"
           echo ""
-          if [ -n "${{ github.event.inputs.release_pr }}" ]; then
+          if [ -n "$RELEASE_PR" ]; then
             echo "🚀 RELEASE PR TO MERGE:"
-            echo "   PR #${{ github.event.inputs.release_pr }} → ${{ github.event.repository.default_branch }}"
+            echo "   PR #$RELEASE_PR → ${{ github.event.repository.default_branch }}"
             echo ""
           fi
-          if [ -n "${{ github.event.inputs.required_approvals }}" ]; then
+          if [ -n "$REQUIRED_APPROVALS" ]; then
             echo "✅ APPROVAL CONFIGURATION:"
-            echo "   Required Approvals: ${{ github.event.inputs.required_approvals }} (override)"
+            echo "   Required Approvals: $REQUIRED_APPROVALS (override)"
           else
             echo "✅ APPROVAL CONFIGURATION:"
             echo "   Required Approvals: Auto-detect from branch protection"
@@ -98,35 +163,14 @@ jobs:
           echo ""
           echo "=============================================="
 
-  approval-gate:
-    name: Await Manual Approval (SPOC)
-    runs-on: ubuntu-latest
-    needs: [prepare-approval]
-    environment:
-      name: merge_queue
-    outputs:
-      approved_by: ${{ steps.set.outputs.actor }}
-    steps:
-      - name: Confirm Approval
-        run: |
-          echo "✅ Merge queue request approved by: ${{ github.actor }}"
-          echo "📋 PRs to merge: ${{ github.event.inputs.pr_numbers }}"
-          if [ -n "${{ github.event.inputs.release_pr }}" ]; then
-            echo "🚀 Release PR: #${{ github.event.inputs.release_pr }}"
-          fi
-          echo "🎯 Target branch: ${{ github.event.repository.default_branch }}"
-
-      - name: Confirm Approver Identity
-        id: set
-        run: echo "actor=${{ github.actor }}" >> $GITHUB_OUTPUT
-
   merge-release:
     name: Merge Release to Master
     runs-on: ubuntu-latest
-    needs: [approval-gate]
+    needs: [prepare-approval, check-trigger]
     env:
       GH_TOKEN: ${{ secrets.CI_TRIGGER_TOKEN }}
-    if: ${{ github.event.inputs.release_pr != '' }}
+      RELEASE_PR: ${{ needs.check-trigger.outputs.release_pr }}
+    if: ${{ needs.check-trigger.outputs.release_pr != '' }}
     outputs:
       release_success: ${{ steps.check.outputs.success }}
     steps:
@@ -137,7 +181,6 @@ jobs:
         id: merge
         continue-on-error: true
         env:
-          RELEASE_PR: ${{ github.event.inputs.release_pr }}
           REPOSITORY: ${{ github.repository }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
@@ -161,8 +204,8 @@ jobs:
 
   validate-prs:
     name: Validate PRs
-    needs: [approval-gate, merge-release]
-    if: always() && (github.event.inputs.release_pr == '' || needs.merge-release.outputs.release_success == 'true')
+    needs: [prepare-approval, check-trigger, merge-release]
+    if: always() && (needs.check-trigger.outputs.release_pr == '' || needs.merge-release.outputs.release_success == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -187,11 +230,11 @@ jobs:
       - name: Validate PRs
         id: set
         env:
-          PR_NUMBERS: ${{ github.event.inputs.pr_numbers }}
-          REQUIRED_APPROVALS: ${{ github.event.inputs.required_approvals }}
+          PR_NUMBERS: ${{ needs.check-trigger.outputs.pr_numbers }}
+          REQUIRED_APPROVALS: ${{ needs.check-trigger.outputs.required_approvals }}
           REPOSITORY: ${{ github.repository }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          RELEASE_PR: ${{ github.event.inputs.release_pr }}
+          RELEASE_PR: ${{ needs.check-trigger.outputs.release_pr }}
         run: |
           python3 .github/scripts/merge_queue/validate_prs.py
 
@@ -259,9 +302,9 @@ jobs:
 
   notify-release-failure:
     name: Notify failure of merging release to ${{ github.event.repository.default_branch }}
-    if: ${{ needs.merge-release.outputs.release_success == 'false' && github.event.inputs.release_pr != '' }}
+    if: ${{ needs.merge-release.outputs.release_success == 'false' && needs.check-trigger.outputs.release_pr != '' }}
     runs-on: ubuntu-latest
-    needs: [merge-release]
+    needs: [merge-release, check-trigger]
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -269,13 +312,15 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Notify SPOC on release merge failure
+        env:
+          RELEASE_PR: ${{ needs.check-trigger.outputs.release_pr }}
         run: |
-          gh pr comment ${{ github.event.inputs.release_pr }} \
-            --body "❌ The release PR #${{ github.event.inputs.release_pr }} failed to merge into \`${{ github.event.repository.default_branch }}\`. The remaining workflow steps were skipped."
+          gh pr comment $RELEASE_PR \
+            --body "❌ The release PR #$RELEASE_PR failed to merge into \`${{ github.event.repository.default_branch }}\`. The remaining workflow steps were skipped."
 
   notify-summary:
     name: Send Summary Notification
-    needs: [approval-gate, validate-prs, merge-approved]
+    needs: [check-trigger, validate-prs, merge-approved]
     runs-on: ubuntu-latest
     if: always()
     permissions:
@@ -297,7 +342,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           REQUIRED_APPROVALS: ${{ needs.validate-prs.outputs.required_approvals }}
-          TOTAL_REQUESTED_RAW: ${{ github.event.inputs.pr_numbers }}
+          TOTAL_REQUESTED_RAW: ${{ needs.check-trigger.outputs.pr_numbers }}
           MERGED: ${{ needs.merge-approved.outputs.merged_prs }}
           UNMERGEABLE: ${{ needs.validate-prs.outputs.unmergeable_prs }}
           FAILED_UPDATE: ${{ needs.merge-approved.outputs.failed_update_prs }}
@@ -305,6 +350,6 @@ jobs:
           TIMEOUT: ${{ needs.merge-approved.outputs.timeout_prs }}
           STARTUP_TIMEOUT: ${{ needs.merge-approved.outputs.startup_timeout_prs }}
           FAILED_MERGE: ${{ needs.merge-approved.outputs.failed_merge_prs }}
-          SUBMITTER: ${{ github.actor }}
+          SUBMITTER: ${{ github.event.comment.user.login }}
 
 
