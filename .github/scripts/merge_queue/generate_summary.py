@@ -23,6 +23,7 @@ def parse_environment_data():
     default_branch = os.getenv('DEFAULT_BRANCH', 'main')
     required_approvals = os.getenv('REQUIRED_APPROVALS', '2')
     submitter = os.getenv('SUBMITTER', 'unknown')
+    original_issue_number = os.getenv('ORIGINAL_ISSUE_NUMBER', '')
     
     def parse_comma_separated(env_var):
         value = os.getenv(env_var, '')
@@ -49,6 +50,7 @@ def parse_environment_data():
         'required_approvals': required_approvals,
         'total_requested': total_requested,
         'submitter': submitter,
+        'original_issue_number': original_issue_number,
         'merged': merged,
         'unmergeable': unmergeable,
         'failed_update': failed_update,
@@ -309,6 +311,39 @@ def add_summary_comment(issue_number, summary):
         raise
 
 
+def post_summary_to_original_issue(issue_number, summary):
+    """Post the merge queue summary to the original issue that triggered the workflow"""
+    print(f"Posting summary to original issue #{issue_number}...")
+
+    # Add a header to indicate this is the final summary
+    final_summary = f"""## 🎯 **Merge Queue Results**
+
+{summary}
+
+---
+*This merge queue request has been completed. The issue will now be closed automatically.*"""
+
+    result = GitHubUtils.comment_on_pr(str(issue_number), final_summary)
+    if result.success:
+        print(f"✅ Successfully posted summary to issue #{issue_number}")
+    else:
+        print(f"❌ Failed to post summary to issue #{issue_number}: {result.error_details}")
+        raise Exception(f"Failed to post summary to issue #{issue_number}")
+
+
+def close_original_issue(issue_number):
+    """Close the original issue that triggered the merge queue workflow"""
+    print(f"Closing original issue #{issue_number}...")
+
+    close_comment = 'Merge queue workflow completed. This issue is now closed automatically.'
+    result = GitHubUtils.close_issue_with_comment(str(issue_number), close_comment)
+    if result.success:
+        print(f"✅ Successfully closed issue #{issue_number}")
+    else:
+        print(f"❌ Failed to close issue #{issue_number}: {result.error_details}")
+        # Don't raise exception for close failure - summary was already posted
+
+
 def main():
     """Main execution"""
     try:
@@ -321,9 +356,12 @@ def main():
         print(summary)
         print("=" * 50)
 
-        # Add summary to commentary issue
-        issue_number = find_or_create_commentary_issue()
-        add_summary_comment(issue_number, summary)
+        # Post summary to original issue and close it
+        if data['original_issue_number']:
+            post_summary_to_original_issue(data['original_issue_number'], summary)
+            close_original_issue(data['original_issue_number'])
+        else:
+            print("Warning: No original issue number provided, skipping issue update")
 
         # Comment on failed PRs
         comment_on_failed_prs(data)

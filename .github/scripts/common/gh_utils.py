@@ -337,3 +337,11 @@ class GitHubUtils:
             "--json",
             "--raw-field", f"inputs={inputs_json}"
         ])
+
+    @staticmethod
+    def close_issue_with_comment(issue_number: str, comment: str) -> CommandResult:
+        """Close an issue with a comment."""
+        return GitHubUtils._run_gh_command([
+            "issue", "close", issue_number,
+            "--comment", comment
+        ])
