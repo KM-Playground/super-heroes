@@ -153,29 +153,19 @@ def post_error_comment(issue_number: int, error_message: str) -> None:
         print(f"⚠️ Failed to post error comment: {result.error_details}")
 
 
-def export_environment_variables(pr_numbers: str, release_pr: str, required_approvals: str) -> None:
-    """Export extracted values as environment variables."""
-    # Set environment variables for the current process and child processes
-    os.environ['EXTRACTED_PR_NUMBERS'] = pr_numbers
-    os.environ['EXTRACTED_RELEASE_PR'] = release_pr
-    os.environ['EXTRACTED_REQUIRED_APPROVALS'] = required_approvals
+def export_to_properties_file(pr_numbers: str, release_pr: str, required_approvals: str) -> None:
+    """Export extracted values to a properties file for shell sourcing."""
+    properties_file = "/tmp/pr_extraction.properties"
 
-    # Also write to GITHUB_ENV for GitHub Actions workflow steps
-    github_env = os.environ.get('GITHUB_ENV')
-    if github_env:
-        with open(github_env, 'a') as f:
-            f.write(f"EXTRACTED_PR_NUMBERS={pr_numbers}\n")
-            f.write(f"EXTRACTED_RELEASE_PR={release_pr}\n")
-            f.write(f"EXTRACTED_REQUIRED_APPROVALS={required_approvals}\n")
-        print("✅ Exported values as environment variables for workflow")
-    else:
-        print("⚠️ GITHUB_ENV not found, variables only set for current process")
+    with open(properties_file, 'w') as f:
+        f.write(f"EXTRACTED_PR_NUMBERS='{pr_numbers}'\n")
+        f.write(f"EXTRACTED_RELEASE_PR='{release_pr}'\n")
+        f.write(f"EXTRACTED_REQUIRED_APPROVALS='{required_approvals}'\n")
 
-    # Print the exported values for verification
-    print(f"✅ Exported environment variables:")
-    print(f"   EXTRACTED_PR_NUMBERS={pr_numbers}")
-    print(f"   EXTRACTED_RELEASE_PR={release_pr}")
-    print(f"   EXTRACTED_REQUIRED_APPROVALS={required_approvals}")
+    print(f"✅ Exported values to properties file: {properties_file}")
+    print(f"   EXTRACTED_PR_NUMBERS='{pr_numbers}'")
+    print(f"   EXTRACTED_RELEASE_PR='{release_pr}'")
+    print(f"   EXTRACTED_REQUIRED_APPROVALS='{required_approvals}'")
 
 
 def main() -> int:
@@ -205,8 +195,8 @@ def main() -> int:
         post_error_comment(issue_number, error_msg)
         return 1
     
-    # Export values as environment variables
-    export_environment_variables(pr_numbers, release_pr, required_approvals)
+    # Export values to properties file
+    export_to_properties_file(pr_numbers, release_pr, required_approvals)
     
     print("✅ Successfully extracted PR information")
     print(f"   PR Numbers: {pr_numbers}")
