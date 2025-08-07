@@ -190,7 +190,7 @@ jobs:
   validate-prs:
     name: Validate PRs
     needs: [check-trigger, merge-release]
-    if: always() && (needs.check-trigger.outputs.release_pr == '' || needs.merge-release.outputs.release_success == 'true')
+    if: always() && !cancelled() && (needs.check-trigger.outputs.release_pr == '' || needs.merge-release.outputs.release_success == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -235,7 +235,7 @@ jobs:
     name: Merge Validated PRs Sequentially
     needs: [validate-prs]
     runs-on: ubuntu-latest
-    if: always() && needs.validate-prs.outputs.has_mergeable_prs == 'true'
+    if: always() && !cancelled() && needs.validate-prs.outputs.has_mergeable_prs == 'true'
     permissions:
       contents: write
       pull-requests: write
@@ -307,7 +307,7 @@ jobs:
     name: Send Summary Notification
     needs: [check-trigger, validate-prs, merge-approved]
     runs-on: ubuntu-latest
-    if: always()
+    if: always() && !cancelled()
     permissions:
       contents: read
       issues: write
@@ -339,7 +339,7 @@ jobs:
           ORIGINAL_ISSUE_NUMBER: ${{ github.event.issue.number }}
 
       - name: Close tracking issue
-        if: always()
+        if: always() && !cancelled()
         run: |
           # Determine completion status based on job results
           if [[ "${{ needs.check-trigger.result }}" != "success" ]]; then
