@@ -31,6 +31,16 @@ class CommandResult:
             f")"
         )
 
+    def __str__(self) -> str:
+        """Return a detailed string representation of the command result."""
+        return (
+            f"CommandResult(\n"
+            f"  success={self.success},\n"
+            f"  stdout='{self.stdout}',\n"
+            f"  stderr='{self.stderr}'\n"
+            f")"
+        )
+
 
 @dataclass
 class OperationResult:

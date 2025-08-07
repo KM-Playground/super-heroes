@@ -193,9 +193,9 @@ jobs:
 
   merge-approved:
     name: Merge Validated PRs Sequentially
-    needs: [validate-prs]
+    needs: [check-trigger, validate-prs]
     runs-on: ubuntu-latest
-    if: always() && needs.validate-prs.outputs.has_mergeable_prs == 'true'
+    if: always() && needs.check-trigger.result == 'success' && needs.validate-prs.outputs.has_mergeable_prs == 'true'
     permissions:
       contents: write
       pull-requests: write
