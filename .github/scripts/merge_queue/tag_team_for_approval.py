@@ -16,28 +16,34 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from common.gh_utils import GitHubUtils
 
 
-def get_team_members_for_tagging(org: str, team: str) -> str:
+def get_team_tag_from_env() -> str:
     """
-    Get team members and format them for individual tagging.
-
-    Args:
-        org: Organization name
-        team: Team name/slug
+    Get team tag from environment variables set by the workflow.
 
     Returns:
-        String with individual member tags, or fallback team tag
+        Team tag string (either individual members or team tag)
     """
-    members = GitHubUtils.get_team_members(org, team)
+    team_tag = GitHubUtils.get_env_var("TEAM_TAG", "")
+    team_members = GitHubUtils.get_env_var("TEAM_MEMBERS", "")
 
-    if not members:
-        print(f"⚠️ Could not retrieve team members for {org}/{team}, using team tag as fallback")
-        return f"@{org}/{team}"
-
-    print(f"✅ Found {len(members)} team members: {', '.join(members)}")
-
-    # Tag each member individually
-    member_tags = " ".join([f"@{member}" for member in members])
-    return member_tags
+    if team_tag:
+        print(f"📧 Using team tag from workflow: {team_tag}")
+        if team_members:
+            print(f"✅ Individual members found: {team_members}")
+        else:
+            print(f"⚠️ Using fallback team tag")
+        return team_tag
+    else:
+        # Fallback if environment variables not set
+        repository = GitHubUtils.get_env_var("GITHUB_REPOSITORY", "")
+        if repository:
+            org = repository.split('/')[0]
+            fallback_tag = f"@{org}/merge-approvals"
+            print(f"⚠️ No team tag from workflow, using fallback: {fallback_tag}")
+            return fallback_tag
+        else:
+            print(f"❌ No team information available")
+            return "@merge-approvals"
 
 
 def create_approval_message(commenter: str, pr_numbers: str, member_tags: str, release_pr: Optional[str] = None) -> str:
@@ -94,17 +100,8 @@ def tag_team_for_approval(issue_number: int, commenter: str, pr_numbers: str, re
     print(f"PR Numbers: {pr_numbers}")
     print(f"Release PR: {release_pr if release_pr else '(none)'}")
 
-    # Get repository info to extract organization name
-    try:
-        repository = GitHubUtils.get_env_var("GITHUB_REPOSITORY")
-        org = repository.split('/')[0]
-        print(f"Organization: {org}")
-    except (ValueError, AttributeError):
-        print("⚠️ GITHUB_REPOSITORY environment variable not set, cannot get team members")
-        return False
-
-    # Get team members for individual tagging
-    member_tags = get_team_members_for_tagging(org, "merge-approvals")
+    # Get team tag from environment variables (set by workflow)
+    member_tags = get_team_tag_from_env()
 
     # Create the approval message
     approval_message = create_approval_message(commenter, pr_numbers, member_tags, release_pr)

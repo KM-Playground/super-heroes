@@ -18,6 +18,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from common.gh_utils import GitHubUtils
 
+# Global set to track unauthorized comments we've already warned about
+warned_unauthorized_comments = set()
+
 
 def parse_iso_timestamp(timestamp_str: str) -> Optional[datetime]:
     """Parse ISO 8601 timestamp string to datetime object."""
@@ -75,31 +78,32 @@ def get_comments_after_timestamp(issue_number: int, trigger_timestamp: str) -> L
         return []
 
 
-def get_team_members_list(org: str, team: str) -> List[str]:
+def get_team_members_from_env() -> List[str]:
     """
-    Get list of team members for validation.
-
-    Args:
-        org: Organization name
-        team: Team name/slug
+    Get list of team members from environment variables set by workflow.
 
     Returns:
-        List of team member usernames
+        List of team member usernames, empty if not available
     """
-    members = GitHubUtils.get_team_members(org, team)
-    if members:
-        print(f"✅ Retrieved {len(members)} team members: {', '.join(members)}")
+    team_members_str = GitHubUtils.get_env_var("TEAM_MEMBERS", "")
+
+    if team_members_str:
+        # Split the space-separated list of members
+        members = [member.strip() for member in team_members_str.split() if member.strip()]
+        print(f"✅ Team members from workflow: {', '.join(members)}")
+        return members
     else:
-        print(f"⚠️ Could not retrieve team members for {org}/{team}")
-    return members
+        print(f"⚠️ No team members available from workflow")
+        print(f"   Approval validation will be skipped")
+        return []
 
 
 def check_for_approval_or_rejection(issue_number: int, trigger_timestamp: str, org: str) -> Tuple[Optional[str], Optional[str]]:
     """Check for approval or rejection comments after the trigger timestamp."""
     comments = get_comments_after_timestamp(issue_number, trigger_timestamp)
 
-    # Get team members list for validation
-    team_members = get_team_members_list(org, "merge-approvals")
+    # Get team members list for validation from environment
+    team_members = get_team_members_from_env()
 
     approval_keywords: List[str] = ["approved", "👍"]
     rejection_keywords: List[str] = ["rejected", "👎"]
@@ -123,17 +127,28 @@ def check_for_approval_or_rejection(issue_number: int, trigger_timestamp: str, o
                 return "approved", author
             elif team_members:
                 print(f"⚠️ Approval from unauthorized user: {author} (not in team: {', '.join(team_members)})")
-                # Post warning but continue checking
-                warning_message: str = f"""⚠️ **Unauthorized Approval Attempt**
+
+                # Create a unique identifier for this comment to avoid duplicate warnings
+                comment_id = comment.get("id", "")
+                comment_key = f"{author}_{comment_id}"
+
+                # Only post warning if we haven't already warned about this comment
+                if comment_key not in warned_unauthorized_comments:
+                    warning_message: str = f"""⚠️ **Unauthorized Approval Attempt**
 
 @{author} attempted to approve this request, but is not a member of the `merge-approvals` team.
 
 **Required**: Approval must come from a member of the `merge-approvals` team.
 **Current team members**: {', '.join([f'@{member}' for member in team_members])}"""
 
-                result = GitHubUtils.add_comment(str(issue_number), warning_message)
-                if not result.success:
-                    print(f"⚠️ Failed to post warning comment: {result.error_details}")
+                    result = GitHubUtils.add_comment(str(issue_number), warning_message)
+                    if result.success:
+                        warned_unauthorized_comments.add(comment_key)
+                        print(f"✅ Posted warning for unauthorized approval from {author}")
+                    else:
+                        print(f"⚠️ Failed to post warning comment: {result.error_details}")
+                else:
+                    print(f"⚠️ Already warned about unauthorized approval from {author} (comment {comment_id})")
             else:
                 # Fallback to API check if we couldn't get team members list
                 print(f"⚠️ Could not retrieve team members, falling back to API check")
@@ -142,15 +157,27 @@ def check_for_approval_or_rejection(issue_number: int, trigger_timestamp: str, o
                     return "approved", author
                 else:
                     print(f"⚠️ Approval from unauthorized user: {author}")
-                    warning_message: str = f"""⚠️ **Unauthorized Approval Attempt**
+
+                    # Create a unique identifier for this comment to avoid duplicate warnings
+                    comment_id = comment.get("id", "")
+                    comment_key = f"{author}_{comment_id}"
+
+                    # Only post warning if we haven't already warned about this comment
+                    if comment_key not in warned_unauthorized_comments:
+                        warning_message: str = f"""⚠️ **Unauthorized Approval Attempt**
 
 @{author} attempted to approve this request, but is not a member of the `merge-approvals` team.
 
 **Required**: Approval must come from a member of the `merge-approvals` team."""
 
-                    result = GitHubUtils.add_comment(str(issue_number), warning_message)
-                    if not result.success:
-                        print(f"⚠️ Failed to post warning comment: {result.error_details}")
+                        result = GitHubUtils.add_comment(str(issue_number), warning_message)
+                        if result.success:
+                            warned_unauthorized_comments.add(comment_key)
+                            print(f"✅ Posted warning for unauthorized approval from {author}")
+                        else:
+                            print(f"⚠️ Failed to post warning comment: {result.error_details}")
+                    else:
+                        print(f"⚠️ Already warned about unauthorized approval from {author} (comment {comment_id})")
 
         # Check for rejection
         elif any(keyword in body for keyword in rejection_keywords):
@@ -196,23 +223,22 @@ def check_for_approval_or_rejection(issue_number: int, trigger_timestamp: str, o
 
 def send_reminder(issue_number: int, remaining_minutes: int) -> None:
     """Send a reminder comment to the issue."""
-    # Get repository info to extract organization name
-    try:
-        repository = GitHubUtils.get_env_var("GITHUB_REPOSITORY")
-        org = repository.split('/')[0]
-    except (ValueError, AttributeError):
-        print("⚠️ GITHUB_REPOSITORY environment variable not set, using fallback team tag")
-        org = None
+    # Get team tag from environment variables (set by workflow)
+    team_tag = GitHubUtils.get_env_var("TEAM_TAG", "")
 
-    # Get team members for individual tagging
-    if org:
-        members = GitHubUtils.get_team_members(org, "merge-approvals")
-        if members:
-            member_tags = " ".join([f"@{member}" for member in members])
-        else:
-            member_tags = f"@{org}/merge-approvals"
+    if team_tag:
+        member_tags = team_tag
+        print(f"📧 Using team tag from workflow for reminder: {member_tags}")
     else:
-        member_tags = "@merge-approvals"
+        # Fallback if environment variables not set
+        try:
+            repository = GitHubUtils.get_env_var("GITHUB_REPOSITORY")
+            org = repository.split('/')[0]
+            member_tags = f"@{org}/merge-approvals"
+            print(f"⚠️ Using fallback team tag for reminder: {member_tags}")
+        except (ValueError, AttributeError):
+            member_tags = "@merge-approvals"
+            print(f"⚠️ Using generic fallback for reminder: {member_tags}")
 
     reminder_message: str = f"""⏰ **Reminder**: Merge queue approval still pending
 
