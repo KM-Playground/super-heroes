@@ -21,6 +21,16 @@ class CommandResult:
     stdout: str
     stderr: str
 
+    def __str__(self) -> str:
+        """Return a detailed string representation of the command result."""
+        return (
+            f"CommandResult(\n"
+            f"  success={self.success},\n"
+            f"  stdout='{self.stdout}',\n"
+            f"  stderr='{self.stderr}'\n"
+            f")"
+        )
+
 
 @dataclass
 class OperationResult:
@@ -154,6 +164,9 @@ class GitHubUtils:
             '--body', comment_body
         ], check=False)
 
+        # Debug: Print the full CommandResult to understand what GitHub returns
+        print(f"🔍 DEBUG - add_comment CommandResult: {result}")
+
         if result.success:
             success_msg = f"✅ Added comment to issue #{issue_number}"
             print(success_msg)
@@ -257,10 +270,15 @@ class GitHubUtils:
     @staticmethod
     def trigger_ci_comment(pr_number: str, comment_text: str = "Ok to test") -> CommandResult:
         """Post a CI trigger comment on a PR and return the raw result with comment URL."""
-        return GitHubUtils._run_gh_command([
+        result = GitHubUtils._run_gh_command([
             "pr", "comment", str(pr_number),
             "--body", comment_text
         ], check=False)
+
+        # Debug: Print the full CommandResult to understand what GitHub returns
+        print(f"🔍 DEBUG - trigger_ci_comment CommandResult: {result}")
+
+        return result
 
     @staticmethod
     def get_branch_protection(repository: str, branch: str) -> CommandResult:
