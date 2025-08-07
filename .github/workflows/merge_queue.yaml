@@ -29,6 +29,10 @@ jobs:
       contains(github.event.comment.body, 'begin-merge') &&
       contains(github.event.issue.labels.*.name, 'merge-queue')
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
