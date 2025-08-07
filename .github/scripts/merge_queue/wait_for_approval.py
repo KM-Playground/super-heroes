@@ -95,7 +95,7 @@ def check_for_approval_or_rejection(issue_number: int, trigger_timestamp: str, o
 
 **Required**: Approval must come from a member of the `merge-approvals` team."""
 
-                result = GitHubUtils.comment_on_pr(str(issue_number), warning_message)
+                result = GitHubUtils.add_comment(str(issue_number), warning_message)
                 if not result.success:
                     print(f"⚠️ Failed to post warning comment: {result.error_details}")
 
@@ -116,7 +116,7 @@ def check_for_approval_or_rejection(issue_number: int, trigger_timestamp: str, o
 
 **Required**: Rejection must come from a member of the `merge-approvals` team."""
 
-                result = GitHubUtils.comment_on_pr(str(issue_number), warning_message)
+                result = GitHubUtils.add_comment(str(issue_number), warning_message)
                 if not result.success:
                     print(f"⚠️ Failed to post warning comment: {result.error_details}")
 
@@ -133,7 +133,7 @@ def send_reminder(issue_number: int, remaining_minutes: int) -> None:
 **To approve**: React with 👍 or reply with 'approved'
 **To reject**: React with 👎 or reply with 'rejected'"""
 
-    result = GitHubUtils.comment_on_pr(str(issue_number), reminder_message)
+    result = GitHubUtils.add_comment(str(issue_number), reminder_message)
     if result.success:
         print(f"✅ Sent reminder - {remaining_minutes} minutes remaining")
     else:
@@ -148,7 +148,7 @@ No approval was received within 60 minutes. The merge queue request has timed ou
 
 **To restart**: Comment `begin-merge` again to start a new approval process."""
 
-    result = GitHubUtils.comment_on_pr(str(issue_number), timeout_message)
+    result = GitHubUtils.add_comment(str(issue_number), timeout_message)
     if result.success:
         print("✅ Sent timeout message")
     else:
@@ -165,7 +165,7 @@ The merge queue workflow will now execute automatically.
 
 Monitor the progress in the [Actions tab](https://github.com/{repository}/actions)."""
 
-    result = GitHubUtils.comment_on_pr(str(issue_number), confirmation_message)
+    result = GitHubUtils.add_comment(str(issue_number), confirmation_message)
     if result.success:
         print(f"✅ Sent approval confirmation for @{approver}")
     else:
@@ -180,7 +180,7 @@ def send_rejection_confirmation(issue_number: int, rejector: str) -> None:
 
 The merge queue request has been rejected. Please address any concerns and comment `begin-merge` again to restart the process."""
 
-    result = GitHubUtils.comment_on_pr(str(issue_number), rejection_message)
+    result = GitHubUtils.add_comment(str(issue_number), rejection_message)
     if result.success:
         print(f"✅ Sent rejection confirmation for @{rejector}")
     else:

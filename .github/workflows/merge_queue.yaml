@@ -57,7 +57,10 @@ jobs:
           echo "Starting PR information extraction..."
           python3 .github/scripts/merge_queue/extract_pr_info.py
 
-          # Output the extracted values for workflow readability
+          # Source the properties file to get the extracted values
+          source /tmp/pr_extraction.properties
+
+          # Output the extracted values to GitHub Actions outputs
           echo "pr_numbers=$EXTRACTED_PR_NUMBERS" >> $GITHUB_OUTPUT
           echo "release_pr=$EXTRACTED_RELEASE_PR" >> $GITHUB_OUTPUT
           echo "required_approvals=$EXTRACTED_REQUIRED_APPROVALS" >> $GITHUB_OUTPUT
