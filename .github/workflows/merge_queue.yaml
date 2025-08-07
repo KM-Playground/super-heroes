@@ -23,11 +23,65 @@ on:
 
 jobs:
 
-  check-trigger:
+  get-team-info:
+    name: Get Team Information
     if: |
       github.event.issue.state == 'open' &&
       contains(github.event.comment.body, 'begin-merge') &&
       contains(github.event.issue.labels.*.name, 'merge-queue')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      team_members: ${{ steps.get-members.outputs.team_members }}
+      team_tag: ${{ steps.get-members.outputs.team_tag }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get team members
+        id: get-members
+        env:
+          GH_TOKEN: ${{ secrets.CI_TRIGGER_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          echo "Getting team member information..."
+
+          # Extract org from repository
+          ORG=$(echo "$GITHUB_REPOSITORY" | cut -d'/' -f1)
+          TEAM="merge-approvals"
+
+          echo "Organization: $ORG"
+          echo "Team: $TEAM"
+
+          # Try to get team members using the custom token
+          if MEMBERS=$(gh api "orgs/$ORG/teams/$TEAM/members" --jq '.[].login' 2>/dev/null); then
+            # Filter out any terminal control characters and create member tags
+            CLEAN_MEMBERS=$(echo "$MEMBERS" | grep -v '^]' | grep -v '^\[' | grep -v '^$' | tr '\n' ' ')
+            if [ -n "$CLEAN_MEMBERS" ]; then
+              MEMBER_TAGS=""
+              for member in $CLEAN_MEMBERS; do
+                MEMBER_TAGS="$MEMBER_TAGS @$member"
+              done
+              MEMBER_TAGS=$(echo "$MEMBER_TAGS" | sed 's/^ *//')
+
+              echo "✅ Found team members: $CLEAN_MEMBERS"
+              echo "team_members=$CLEAN_MEMBERS" >> $GITHUB_OUTPUT
+              echo "team_tag=$MEMBER_TAGS" >> $GITHUB_OUTPUT
+            else
+              echo "⚠️ Team exists but no members found"
+              echo "team_members=" >> $GITHUB_OUTPUT
+              echo "team_tag=@$ORG/$TEAM" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "⚠️ Could not access team members, using team tag"
+            echo "team_members=" >> $GITHUB_OUTPUT
+            echo "team_tag=@$ORG/$TEAM" >> $GITHUB_OUTPUT
+          fi
+
+  check-trigger:
+    name: Check Trigger and Initialize
+    needs: [get-team-info]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -60,8 +114,12 @@ jobs:
           COMMENTER: ${{ github.event.comment.user.login }}
           PR_NUMBERS: ${{ steps.initialize.outputs.pr_numbers }}
           RELEASE_PR: ${{ steps.initialize.outputs.release_pr }}
+          TEAM_MEMBERS: ${{ needs.get-team-info.outputs.team_members }}
+          TEAM_TAG: ${{ needs.get-team-info.outputs.team_tag }}
         run: |
           echo "Starting team approval request..."
+          echo "Team members: $TEAM_MEMBERS"
+          echo "Team tag: $TEAM_TAG"
           python3 .github/scripts/merge_queue/tag_team_for_approval.py
 
       - name: Wait for approval with reminders
@@ -71,8 +129,11 @@ jobs:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           TRIGGER_COMMENT_TIME: ${{ github.event.comment.created_at }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          TEAM_MEMBERS: ${{ needs.get-team-info.outputs.team_members }}
+          TEAM_TAG: ${{ needs.get-team-info.outputs.team_tag }}
         run: |
           echo "Starting approval wait process..."
+          echo "Team members for validation: $TEAM_MEMBERS"
           python3 .github/scripts/merge_queue/wait_for_approval.py
 
     outputs:

@@ -75,31 +75,32 @@ def get_comments_after_timestamp(issue_number: int, trigger_timestamp: str) -> L
         return []
 
 
-def get_team_members_list(org: str, team: str) -> List[str]:
+def get_team_members_from_env() -> List[str]:
     """
-    Get list of team members for validation.
-
-    Args:
-        org: Organization name
-        team: Team name/slug
+    Get list of team members from environment variables set by workflow.
 
     Returns:
-        List of team member usernames
+        List of team member usernames, empty if not available
     """
-    members = GitHubUtils.get_team_members(org, team)
-    if members:
-        print(f"✅ Retrieved {len(members)} team members: {', '.join(members)}")
+    team_members_str = GitHubUtils.get_env_var("TEAM_MEMBERS", "")
+
+    if team_members_str:
+        # Split the space-separated list of members
+        members = [member.strip() for member in team_members_str.split() if member.strip()]
+        print(f"✅ Team members from workflow: {', '.join(members)}")
+        return members
     else:
-        print(f"⚠️ Could not retrieve team members for {org}/{team}")
-    return members
+        print(f"⚠️ No team members available from workflow")
+        print(f"   Approval validation will be skipped")
+        return []
 
 
 def check_for_approval_or_rejection(issue_number: int, trigger_timestamp: str, org: str) -> Tuple[Optional[str], Optional[str]]:
     """Check for approval or rejection comments after the trigger timestamp."""
     comments = get_comments_after_timestamp(issue_number, trigger_timestamp)
 
-    # Get team members list for validation
-    team_members = get_team_members_list(org, "merge-approvals")
+    # Get team members list for validation from environment
+    team_members = get_team_members_from_env()
 
     approval_keywords: List[str] = ["approved", "👍"]
     rejection_keywords: List[str] = ["rejected", "👎"]
@@ -196,23 +197,22 @@ def check_for_approval_or_rejection(issue_number: int, trigger_timestamp: str, o
 
 def send_reminder(issue_number: int, remaining_minutes: int) -> None:
     """Send a reminder comment to the issue."""
-    # Get repository info to extract organization name
-    try:
-        repository = GitHubUtils.get_env_var("GITHUB_REPOSITORY")
-        org = repository.split('/')[0]
-    except (ValueError, AttributeError):
-        print("⚠️ GITHUB_REPOSITORY environment variable not set, using fallback team tag")
-        org = None
+    # Get team tag from environment variables (set by workflow)
+    team_tag = GitHubUtils.get_env_var("TEAM_TAG", "")
 
-    # Get team members for individual tagging
-    if org:
-        members = GitHubUtils.get_team_members(org, "merge-approvals")
-        if members:
-            member_tags = " ".join([f"@{member}" for member in members])
-        else:
-            member_tags = f"@{org}/merge-approvals"
+    if team_tag:
+        member_tags = team_tag
+        print(f"📧 Using team tag from workflow for reminder: {member_tags}")
     else:
-        member_tags = "@merge-approvals"
+        # Fallback if environment variables not set
+        try:
+            repository = GitHubUtils.get_env_var("GITHUB_REPOSITORY")
+            org = repository.split('/')[0]
+            member_tags = f"@{org}/merge-approvals"
+            print(f"⚠️ Using fallback team tag for reminder: {member_tags}")
+        except (ValueError, AttributeError):
+            member_tags = "@merge-approvals"
+            print(f"⚠️ Using generic fallback for reminder: {member_tags}")
 
     reminder_message: str = f"""⏰ **Reminder**: Merge queue approval still pending
 
