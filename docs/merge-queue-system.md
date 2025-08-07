@@ -49,7 +49,7 @@ The workflow requires the following permissions in the `GITHUB_TOKEN`:
 
 ### Fine-Grained Personal Access Token
 
-The workflow requires a special token to trigger CI workflows:
+The workflow requires a special token to trigger CI workflows and access team membership:
 
 **Steps to create the token:**
 1. Go to **GitHub Settings** → **Developer settings** → **Personal access tokens** → **Fine-grained tokens**
@@ -59,7 +59,10 @@ The workflow requires a special token to trigger CI workflows:
    - **Code**: **Read and Write** access (for branch operations)
    - **Metadata**: **Read** access (for basic repository information)
    - **Pull requests**: **Read and Write** access (for comments and workflow triggers)
+   - **Members**: **Read** access (for organization team membership - **organization level permission**)
 4. Store as repository secret named `CI_TRIGGER_TOKEN`
+
+**Important Note:** The "Members" permission must be granted at the **organization level**, not just repository level, to access team membership information.
 
 ### GitHub Environment
 
@@ -120,25 +123,34 @@ The system uses a distributed locking mechanism to prevent concurrent runs:
 
 The workflow executes through multiple jobs with specific dependencies:
 
-#### Job 1: Initialization with Duplicate Prevention
+#### Job 1: Team Information Retrieval
+- **Uses**: `CI_TRIGGER_TOKEN` with organization-level "Members" permission
+- Retrieves `merge-approvals` team member list via GitHub API
+- Formats individual member tags for better notifications
+- Falls back to team tag if members cannot be accessed
+- Exports team information for subsequent jobs
+
+#### Job 2: Initialization with Duplicate Prevention
 - **Script**: `initialize_merge_queue.py` (consolidated tracking issue management)
+- **Depends on**: Team information from Job 1
 - Checks for existing tracking issues using `distributed-lock` label
 - Extracts PR information from issue body (PR numbers, release PR, required approvals)
 - Creates new tracking issue if none exists
 - Exports all data for subsequent jobs
 - Aborts if duplicate run detected
 
-#### Job 2: Team Approval Request
-- Tags individual `merge-approvals` team members
+#### Job 3: Team Approval Request
+- **Uses**: Team information from Job 1
+- Tags individual `merge-approvals` team members (or team tag as fallback)
 - Waits for approval/rejection (60-minute timeout)
-- Sends reminders every 15 minutes
+- Sends reminders every 15 minutes using team information
 
-#### Job 3: PR Validation
+#### Job 4: PR Validation
 - Validates PR existence and status
 - Checks merge conflicts and approvals
 - Categorizes PRs as mergeable/unmergeable
 
-#### Job 4: Sequential PR Merging
+#### Job 5: Sequential PR Merging
 - Processes PRs in chronological order (lowest number first)
 - For each PR:
   1. Updates branch with latest default branch
@@ -147,7 +159,7 @@ The workflow executes through multiple jobs with specific dependencies:
   4. Performs squash merge with standardized message
   5. Handles branch cleanup based on protection status
 
-#### Job 5: Summary & Cleanup
+#### Job 6: Summary & Cleanup
 - **Scripts**: `generate_summary.py` + `close_tracking_issue.py` (independent)
 - Posts comprehensive summary to original issue
 - Closes original issue automatically
@@ -283,6 +295,18 @@ gh api orgs/YOUR_ORG/teams/merge-approvals/members
 - Verify token permissions and expiration
 - Check `pr-test.yaml` workflow exists and triggers on "Ok to test"
 - Test manual trigger: `gh pr comment PR_NUMBER --body "Ok to test"`
+
+#### 👥 Team Member Access Issues
+**Cause**: `CI_TRIGGER_TOKEN` lacks organization-level "Members" permission
+**Symptoms**:
+- Workflow fails at "Get team members" step
+- Error: "403 Forbidden" or "Resource not accessible by integration"
+- Falls back to generic team tag instead of individual member tagging
+**Solutions**:
+- Ensure `CI_TRIGGER_TOKEN` has **"Read access to members"** at **organization level**
+- Verify token is not expired
+- Check that `merge-approvals` team exists and has members
+- Test manually: `gh api orgs/YOUR_ORG/teams/merge-approvals/members`
 
 #### ⏰ Timeout Issues
 **Cause**: CI execution or approval timeouts
