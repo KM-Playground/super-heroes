@@ -387,6 +387,36 @@ class GitHubUtils:
         return result.success
 
     @staticmethod
+    def get_team_members(org: str, team: str) -> list[str]:
+        """
+        Get all members of a team.
+
+        Args:
+            org: Organization name
+            team: Team slug/name
+
+        Returns:
+            List of usernames in the team, empty list if error
+        """
+        result = GitHubUtils._run_gh_command([
+            "api", f"orgs/{org}/teams/{team}/members",
+            "--jq", ".[].login"
+        ], check=False)
+
+        if not result.success:
+            print(f"⚠️ Failed to get team members for {org}/{team}: {result.stderr}")
+            return []
+
+        # Parse the usernames from the output
+        usernames = []
+        for line in result.stdout.strip().split('\n'):
+            username = line.strip()
+            if username:
+                usernames.append(username)
+
+        return usernames
+
+    @staticmethod
     def get_running_workflows(workflow_name: str) -> CommandResult:
         """Get list of running workflows for a specific workflow file."""
         return GitHubUtils._run_gh_command([
