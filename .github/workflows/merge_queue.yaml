@@ -203,8 +203,8 @@ jobs:
 
   validate-prs:
     name: Validate PRs
-    needs: [check-trigger, merge-release]
-    if: always() && !cancelled() && (needs.check-trigger.outputs.release_pr == '' || needs.merge-release.outputs.release_success == 'true')
+    needs: [get-team-info, check-trigger, merge-release]
+    if: always() && !cancelled() && needs.get-team-info.result == 'success' && (needs.check-trigger.outputs.release_pr == '' || needs.merge-release.outputs.release_success == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: read
