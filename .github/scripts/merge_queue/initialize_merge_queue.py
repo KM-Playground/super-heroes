@@ -209,6 +209,10 @@ def extract_pr_info_from_issue_body(issue_body: str) -> PRExtractionResult:
     """
     Extract PR numbers, release PR, and required approvals from issue body.
 
+    Supports both formats:
+    1. GitHub issue template format with markdown headers (### PR Numbers)
+    2. Legacy format with colon-separated lines (PR Numbers: 123)
+
     Args:
         issue_body: The issue body content
 
@@ -223,27 +227,65 @@ def extract_pr_info_from_issue_body(issue_body: str) -> PRExtractionResult:
         return PRExtractionResult(pr_numbers, release_pr, required_approvals)
 
     lines = issue_body.strip().split('\n')
+    current_section = None
 
-    for line in lines:
+    for i, line in enumerate(lines):
         line = line.strip()
 
-        # Look for PR Numbers pattern
-        if line.lower().startswith('pr numbers:'):
-            pr_part = line.split(':', 1)[1].strip()
-            # Clean up the PR numbers (remove spaces, handle various formats)
-            pr_numbers = ','.join([pr.strip() for pr in pr_part.split(',') if pr.strip()])
+        # Check for GitHub issue template markdown headers
+        if line.startswith('### '):
+            header = line[4:].strip().lower()
+            if 'pr numbers' in header:
+                current_section = 'pr_numbers'
+            elif 'release pr' in header:
+                current_section = 'release_pr'
+            elif 'required approvals override' in header:
+                current_section = 'required_approvals'
+            else:
+                current_section = None
+            continue
 
-        # Look for Release PR pattern
-        elif line.lower().startswith('release pr:'):
-            release_part = line.split(':', 1)[1].strip()
-            if release_part and release_part.lower() != 'none':
-                release_pr = release_part
+        # Legacy format: Look for colon-separated patterns
+        if ':' in line:
+            if line.lower().startswith('pr numbers:'):
+                pr_part = line.split(':', 1)[1].strip()
+                # Clean up the PR numbers (remove spaces, handle various formats)
+                if pr_part and pr_part.lower() not in ['none', '_no response_', 'tbd']:
+                    pr_numbers = ','.join([pr.strip() for pr in pr_part.split(',') if pr.strip()])
+                continue
 
-        # Look for Required Approvals Override pattern
-        elif line.lower().startswith('required approvals override:'):
-            approvals_part = line.split(':', 1)[1].strip()
-            if approvals_part and approvals_part.lower() != 'none':
-                required_approvals = approvals_part
+            elif line.lower().startswith('release pr:'):
+                release_part = line.split(':', 1)[1].strip()
+                if release_part and release_part.lower() not in ['none', '_no response_']:
+                    release_pr = release_part
+                continue
+
+            elif line.lower().startswith('required approvals override:'):
+                approvals_part = line.split(':', 1)[1].strip()
+                if approvals_part and approvals_part.lower() not in ['none', '_no response_']:
+                    required_approvals = approvals_part
+                continue
+
+        # Process content under current section (for GitHub template format)
+        if current_section and line and line.lower() not in ['_no response_', 'none', '']:
+            if current_section == 'pr_numbers':
+                # Handle PR numbers (comma-separated or single number)
+                if ',' in line:
+                    # Multiple comma-separated PRs
+                    pr_list = [pr.strip() for pr in line.split(',') if pr.strip().isdigit()]
+                    if pr_list:
+                        pr_numbers = ','.join(pr_list)
+                elif line.isdigit():
+                    # Single PR number
+                    pr_numbers = line
+
+            elif current_section == 'release_pr':
+                if line.isdigit():
+                    release_pr = line
+
+            elif current_section == 'required_approvals':
+                if line.isdigit():
+                    required_approvals = line
 
     return PRExtractionResult(pr_numbers, release_pr, required_approvals)
 
