@@ -48,16 +48,16 @@ class MergeQueueData:
 
 def parse_environment_data() -> MergeQueueData:
     """Parse environment variables and return processed data"""
-    total_requested_raw: str = os.getenv('TOTAL_REQUESTED_RAW', '')
+    total_requested_raw: str = GitHubUtils.get_env_var('TOTAL_REQUESTED_RAW', '')
     total_requested: int = len([pr.strip() for pr in total_requested_raw.split(',') if pr.strip()])
 
-    default_branch: str = os.getenv('DEFAULT_BRANCH', 'main')
-    required_approvals: str = os.getenv('REQUIRED_APPROVALS', '2')
-    submitter: str = os.getenv('SUBMITTER', 'unknown')
-    original_issue_number: str = os.getenv('ORIGINAL_ISSUE_NUMBER', '')
+    default_branch: str = GitHubUtils.get_env_var('DEFAULT_BRANCH', 'main')
+    required_approvals: str = GitHubUtils.get_env_var('REQUIRED_APPROVALS', '2')
+    submitter: str = GitHubUtils.get_env_var('SUBMITTER', 'unknown')
+    original_issue_number: str = GitHubUtils.get_env_var('ORIGINAL_ISSUE_NUMBER', '')
 
     def parse_comma_separated(env_var: str) -> List[str]:
-        value: str = os.getenv(env_var, '')
+        value: str = GitHubUtils.get_env_var(env_var, '')
         return [item.strip() for item in value.split(',') if item.strip()]
 
     merged: List[str] = parse_comma_separated('MERGED')
@@ -65,7 +65,7 @@ def parse_environment_data() -> MergeQueueData:
     # Parse UNMERGEABLE as JSON (it comes from validate-prs step as JSON)
     unmergeable: List[str] = []
     try:
-        unmergeable_raw: str = os.getenv('UNMERGEABLE', '[]')
+        unmergeable_raw: str = GitHubUtils.get_env_var('UNMERGEABLE', '[]')
         unmergeable = json.loads(unmergeable_raw) if unmergeable_raw.strip() else []
     except json.JSONDecodeError as e:
         print(f"Warning: Failed to parse UNMERGEABLE as JSON: {e}. Using empty list.", file=sys.stderr)
