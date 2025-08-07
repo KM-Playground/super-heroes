@@ -1,7 +1,1 @@
-This is my second pull request.
-This is my second pull request.
-This is an independent change
-This is the next independent change
-This is the another change which is required.
-This is some more change
-More changes are coming.
+This is more changes
