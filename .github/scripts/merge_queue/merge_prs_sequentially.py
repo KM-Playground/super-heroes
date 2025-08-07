@@ -295,7 +295,7 @@ def trigger_ci_and_get_timestamp(pr_number: int) -> str:
   comment_id = comment_id_match.group(1)
   print(f"✅ CI triggered for PR #{pr_number}, comment ID: {comment_id}")
 
-  # Get the precise timestamp of the comment using unified approach
+  # Get the precise timestamp of the comment using REST API
   comment = GitHubUtils.find_comment_by_id(str(pr_number), comment_id)
 
   if not comment:

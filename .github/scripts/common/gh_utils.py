@@ -312,26 +312,42 @@ class GitHubUtils:
 
     @staticmethod
     def find_comment_by_id(issue_number: str, comment_id: str) -> dict:
-        """Find a specific comment by ID from all comments on an issue/PR."""
-        result = GitHubUtils.get_all_comments(issue_number)
+        """Find a specific comment by ID using the REST API directly."""
+        # Use the REST API to get the comment directly by its numeric ID
+        # This is more reliable than searching through all comments
+        repository = GitHubUtils.get_env_var("GITHUB_REPOSITORY")
+        if not repository:
+            print("⚠️ GITHUB_REPOSITORY environment variable not set")
+            return {}
+
+        result = GitHubUtils._run_gh_command([
+            "api", f"repos/{repository}/issues/comments/{comment_id}"
+        ], check=False)
 
         if not result.success:
+            print(f"⚠️ Failed to get comment {comment_id}: {result.stderr}")
             return {}
 
         try:
             import json
-            data = json.loads(result.stdout)
-            comments = data.get("comments", [])
+            comment_data = json.loads(result.stdout)
 
-            # Find the comment with matching ID
-            for comment in comments:
-                if comment.get("id") == comment_id:
-                    return comment
+            # Convert REST API field names to match GitHub CLI format (snake_case to camelCase)
+            # This ensures compatibility with existing code that expects camelCase field names
+            normalized_comment = {
+                "id": comment_data.get("id"),
+                "createdAt": comment_data.get("created_at"),
+                "updatedAt": comment_data.get("updated_at"),
+                "body": comment_data.get("body"),
+                "user": comment_data.get("user", {}),
+                "authorAssociation": comment_data.get("author_association")
+            }
 
-        except (json.JSONDecodeError, KeyError):
-            pass
+            return normalized_comment
 
-        return {}
+        except (json.JSONDecodeError, KeyError) as e:
+            print(f"⚠️ Error parsing comment data: {e}")
+            return {}
 
     @staticmethod
     def is_team_member(username: str, org: str, team: str) -> bool:
