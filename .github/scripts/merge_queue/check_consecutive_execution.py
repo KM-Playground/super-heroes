@@ -36,37 +36,29 @@ def get_running_workflows(workflow_name: str) -> List[Dict[str, Any]]:
 def check_consecutive_execution(issue_number: int, repository: str) -> bool:
     """
     Check if there are conflicting workflow runs that would prevent execution.
-    
+
     Returns:
         True if execution should proceed (no conflicts)
         False if execution should be blocked (conflicts found)
     """
     print("Checking for existing merge queue workflow runs...")
-    
-    # Check for running merge queue trigger workflows
-    running_trigger = get_running_workflows("merge_queue_trigger.yaml")
+
+    # Check for running merge queue workflows (now unified into single workflow)
     running_merge = get_running_workflows("merge_queue.yaml")
-    
-    trigger_count = len(running_trigger)
+
     merge_count = len(running_merge)
-    
-    print(f"Running merge queue trigger workflows: {trigger_count}")
+
     print(f"Running merge queue workflows: {merge_count}")
-    
-    # Allow current workflow (1 trigger workflow is expected - this one)
-    # Block if there are any merge queue workflows running
-    if trigger_count > 1 or merge_count > 0:
+
+    # Allow current workflow (1 merge queue workflow is expected - this one)
+    # Block if there are more than 1 merge queue workflows running
+    if merge_count > 1:
         print("❌ Consecutive execution prevented - existing workflow runs found")
-        
+
         # Build detailed message about active workflows
-        active_workflows = []
-        if trigger_count > 1:
-            active_workflows.append(f"• Merge Queue Trigger workflows: {trigger_count}")
-        if merge_count > 0:
-            active_workflows.append(f"• Merge Queue workflows: {merge_count}")
-        
+        active_workflows = [f"• Merge Queue workflows: {merge_count}"]
         active_workflows_text = "\n".join(active_workflows)
-        
+
         # Post blocking message to the issue
         blocking_message = f"""⚠️ **Consecutive Execution Prevented**
 
@@ -78,15 +70,15 @@ There are already active merge queue workflows running:
 **Monitor Progress**: [View Active Workflows](https://github.com/{repository}/actions)
 
 **Retry**: Comment `begin-merge` again once all workflows have completed."""
-        
+
         result = GitHubUtils.comment_on_pr(str(issue_number), blocking_message)
         if result.success:
             print("✅ Posted consecutive execution prevention message")
         else:
             print(f"⚠️ Failed to post blocking message: {result.error_details}")
-        
+
         return False
-    
+
     print("✅ No conflicting workflow runs found - proceeding with new request")
     return True
 
