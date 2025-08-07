@@ -4,10 +4,13 @@ Generate PR merge summary report and handle notifications
 This script handles all processing and GitHub CLI calls in one place
 """
 
-import os
-import sys
 import json
+import os
+from dataclasses import dataclass
 from datetime import datetime
+from typing import Dict, List
+
+import sys
 
 # Add the parent directory to sys.path to enable imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -15,71 +18,100 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from common.gh_utils import GitHubUtils
 
 
-def parse_environment_data():
-    """Parse environment variables and return processed data"""
-    total_requested_raw = os.getenv('TOTAL_REQUESTED_RAW', '')
-    total_requested = len([pr.strip() for pr in total_requested_raw.split(',') if pr.strip()])
+@dataclass
+class MergeQueueData:
+    """Data class containing all merge queue workflow results and configuration"""
+    default_branch: str
+    required_approvals: str
+    total_requested: int
+    submitter: str
+    original_issue_number: str
+    merged: List[str]
+    unmergeable: List[str]
+    failed_update: List[str]
+    failed_ci: List[str]
+    timeout: List[str]
+    startup_timeout: List[str]
+    failed_merge: List[str]
 
-    default_branch = os.getenv('DEFAULT_BRANCH', 'main')
-    required_approvals = os.getenv('REQUIRED_APPROVALS', '2')
-    submitter = os.getenv('SUBMITTER', 'unknown')
-    original_issue_number = os.getenv('ORIGINAL_ISSUE_NUMBER', '')
-    
-    def parse_comma_separated(env_var):
-        value = os.getenv(env_var, '')
+    def as_dictionary(self) -> Dict[str, List[str]]:
+        """Return all failure categories as a dictionary for easy iteration."""
+        return {
+            'unmergeable': self.unmergeable,
+            'failed_update': self.failed_update,
+            'failed_ci': self.failed_ci,
+            'timeout': self.timeout,
+            'startup_timeout': self.startup_timeout,
+            'failed_merge': self.failed_merge
+        }
+
+
+def parse_environment_data() -> MergeQueueData:
+    """Parse environment variables and return processed data"""
+    total_requested_raw: str = os.getenv('TOTAL_REQUESTED_RAW', '')
+    total_requested: int = len([pr.strip() for pr in total_requested_raw.split(',') if pr.strip()])
+
+    default_branch: str = os.getenv('DEFAULT_BRANCH', 'main')
+    required_approvals: str = os.getenv('REQUIRED_APPROVALS', '2')
+    submitter: str = os.getenv('SUBMITTER', 'unknown')
+    original_issue_number: str = os.getenv('ORIGINAL_ISSUE_NUMBER', '')
+
+    def parse_comma_separated(env_var: str) -> List[str]:
+        value: str = os.getenv(env_var, '')
         return [item.strip() for item in value.split(',') if item.strip()]
-    
-    merged = parse_comma_separated('MERGED')
+
+    merged: List[str] = parse_comma_separated('MERGED')
 
     # Parse UNMERGEABLE as JSON (it comes from validate-prs step as JSON)
+    unmergeable: List[str] = []
     try:
-        unmergeable_raw = os.getenv('UNMERGEABLE', '[]')
+        unmergeable_raw: str = os.getenv('UNMERGEABLE', '[]')
         unmergeable = json.loads(unmergeable_raw) if unmergeable_raw.strip() else []
     except json.JSONDecodeError as e:
         print(f"Warning: Failed to parse UNMERGEABLE as JSON: {e}. Using empty list.", file=sys.stderr)
         unmergeable = []
 
-    failed_update = parse_comma_separated('FAILED_UPDATE')
-    failed_ci = parse_comma_separated('FAILED_CI')
-    timeout = parse_comma_separated('TIMEOUT')
-    startup_timeout = parse_comma_separated('STARTUP_TIMEOUT')
-    failed_merge = parse_comma_separated('FAILED_MERGE')
-    
-    return {
-        'default_branch': default_branch,
-        'required_approvals': required_approvals,
-        'total_requested': total_requested,
-        'submitter': submitter,
-        'original_issue_number': original_issue_number,
-        'merged': merged,
-        'unmergeable': unmergeable,
-        'failed_update': failed_update,
-        'failed_ci': failed_ci,
-        'timeout': timeout,
-        'startup_timeout': startup_timeout,
-        'failed_merge': failed_merge
-    }
+    failed_update: List[str] = parse_comma_separated('FAILED_UPDATE')
+    failed_ci: List[str] = parse_comma_separated('FAILED_CI')
+    timeout: List[str] = parse_comma_separated('TIMEOUT')
+    startup_timeout: List[str] = parse_comma_separated('STARTUP_TIMEOUT')
+    failed_merge: List[str] = parse_comma_separated('FAILED_MERGE')
+
+    return MergeQueueData(
+        default_branch=default_branch,
+        required_approvals=required_approvals,
+        total_requested=total_requested,
+        submitter=submitter,
+        original_issue_number=original_issue_number,
+        merged=merged,
+        unmergeable=unmergeable,
+        failed_update=failed_update,
+        failed_ci=failed_ci,
+        timeout=timeout,
+        startup_timeout=startup_timeout,
+        failed_merge=failed_merge
+    )
 
 
-def generate_summary_with_authors(data):
+def generate_summary_with_authors(data: MergeQueueData) -> str:
     """Generate the PR merge summary report with author information"""
-    total_merged = len(data['merged'])
-    total_failed = (len(data['unmergeable']) + len(data['failed_update']) +
-                   len(data['failed_ci']) + len(data['timeout']) + len(data['startup_timeout']) + len(data['failed_merge']))
-    date = datetime.now().strftime('%Y-%m-%d')
+    total_merged: int = len(data.merged)
+    total_failed: int = (len(data.unmergeable) + len(data.failed_update) +
+                        len(data.failed_ci) + len(data.timeout) + len(data.startup_timeout) + len(data.failed_merge))
+    date: str = datetime.now().strftime('%Y-%m-%d')
 
-    summary = f"""# PR Merge Summary - {date}
+    summary: str = f"""# PR Merge Summary - {date}
 
 ## Overview
-- **Total PRs Requested**: {data['total_requested']}
+- **Total PRs Requested**: {data.total_requested}
 - **Successfully Merged**: {total_merged}
 - **Failed to Merge**: {total_failed}
 
 ## Successfully Merged PRs ✅
 """
 
-    if data['merged']:
-        summary += '\n'.join(f"- PR #{pr}" for pr in data['merged'])
+    if data.merged:
+        summary += '\n'.join(f"- PR #{pr}" for pr in data.merged)
     else:
         summary += "- None"
 
@@ -90,24 +122,24 @@ def generate_summary_with_authors(data):
 ### Initial Validation Failures
 """
 
-    if data['unmergeable']:
-        for pr in data['unmergeable']:
+    if data.unmergeable:
+        for pr in data.unmergeable:
             author_result = GitHubUtils.get_pr_author(str(pr))
             author = author_result.message
-            summary += f"\n- PR #{pr} (@{author}) - insufficient approvals, failing checks, or not targeting {data['default_branch']}"
+            summary += f"\n- PR #{pr} (@{author}) - insufficient approvals, failing checks, or not targeting {data.default_branch}"
     else:
         summary += "- None"
 
     summary += f"""
 
-### Update with {data['default_branch'].title()} Failed
+### Update with {data.default_branch.title()} Failed
 """
 
-    if data['failed_update']:
-        for pr in data['failed_update']:
+    if data.failed_update:
+        for pr in data.failed_update:
             author_result = GitHubUtils.get_pr_author(str(pr))
             author = author_result.message
-            summary += f"\n- PR #{pr} (@{author}) - could not update branch with {data['default_branch']}"
+            summary += f"\n- PR #{pr} (@{author}) - could not update branch with {data.default_branch}"
     else:
         summary += "- None"
 
@@ -116,8 +148,8 @@ def generate_summary_with_authors(data):
 ### CI Checks Failed
 """
 
-    if data['failed_ci']:
-        for pr in data['failed_ci']:
+    if data.failed_ci:
+        for pr in data.failed_ci:
             author_result = GitHubUtils.get_pr_author(str(pr))
             author = author_result.message
             summary += f"\n- PR #{pr} (@{author}) - CI checks failed after update"
@@ -129,8 +161,8 @@ def generate_summary_with_authors(data):
 ### CI Execution Timeout
 """
 
-    if data['timeout']:
-        for pr in data['timeout']:
+    if data.timeout:
+        for pr in data.timeout:
             author_result = GitHubUtils.get_pr_author(str(pr))
             author = author_result.message
             summary += f"\n- PR #{pr} (@{author}) - CI did not complete within 45 minutes"
@@ -142,8 +174,8 @@ def generate_summary_with_authors(data):
 ### CI Startup Timeout
 """
 
-    if data['startup_timeout']:
-        for pr in data['startup_timeout']:
+    if data.startup_timeout:
+        for pr in data.startup_timeout:
             author_result = GitHubUtils.get_pr_author(str(pr))
             author = author_result.message
             summary += f"\n- PR #{pr} (@{author}) - CI workflow did not start within 5 minutes"
@@ -155,8 +187,8 @@ def generate_summary_with_authors(data):
 ### Merge Operation Failed
 """
 
-    if data['failed_merge']:
-        for pr in data['failed_merge']:
+    if data.failed_merge:
+        for pr in data.failed_merge:
             author_result = GitHubUtils.get_pr_author(str(pr))
             author = author_result.message
             summary += f"\n- PR #{pr} (@{author}) - merge command failed (likely merge conflicts)"
@@ -166,19 +198,19 @@ def generate_summary_with_authors(data):
     summary += f"""
 
 ---
-@{data.get('submitter', 'unknown')} - Your merge queue request has been completed!
+@{data.submitter} - Your merge queue request has been completed!
 
 *Automated workflow execution*"""
 
     return summary
 
 
-def generate_summary(data):
+def generate_summary(data: MergeQueueData) -> str:
     """Generate the PR merge summary report (legacy function for compatibility)"""
     return generate_summary_with_authors(data)
 
 
-def get_failure_messages(default_branch, required_approvals):
+def get_failure_messages(default_branch: str, required_approvals: str) -> Dict[str, str]:
     """Get the failure message templates"""
     return {
         'unmergeable': f"❌ This PR could not be merged due to one or more of the following:\n\n- Less than {required_approvals} approvals\n- Failing or missing status checks\n- Not up-to-date with `{default_branch}`\n- Not targeting `{default_branch}`\n\nPlease address these issues to include it in the next merge cycle.",
@@ -190,138 +222,45 @@ def get_failure_messages(default_branch, required_approvals):
     }
 
 
-def comment_on_failed_prs(data):
+def comment_on_failed_prs(data: MergeQueueData) -> None:
     """Comment on all failed PRs with specific failure reasons"""
-    failure_messages = get_failure_messages(data['default_branch'], data['required_approvals'])
-    failure_categories = {
-        'unmergeable': data['unmergeable'],
-        'failed_update': data['failed_update'],
-        'failed_ci': data['failed_ci'],
-        'timeout': data['timeout'],
-        'startup_timeout': data['startup_timeout'],
-        'failed_merge': data['failed_merge']
-    }
-    
+    failure_messages: Dict[str, str] = get_failure_messages(data.default_branch, data.required_approvals)
+    failure_categories: Dict[str, List[str]] = data.as_dictionary()
+
     for category, prs in failure_categories.items():
         if not prs:
             continue
-            
+
         for pr_number in prs:
             print(f"Commenting on PR #{pr_number} for {category} failure...")
-            
+
             # Get PR author
             author_result = GitHubUtils.get_pr_author(pr_number)
-            author = author_result.message
+            author: str = author_result.message
 
             # Build complete message
-            message = f"@{author}, {failure_messages[category]}"
+            message: str = f"@{author}, {failure_messages[category]}"
 
             # Comment on PR using shared utility
             GitHubUtils.comment_on_pr(str(pr_number), message)
 
 
-def update_prs_with_default_branch(prs_to_update, default_branch):
-    """Update PRs with default branch"""
-    if not prs_to_update:
-        return
-
-    print(f"Updating {len(prs_to_update)} PRs with {default_branch}: {', '.join(prs_to_update)}")
-
-    for pr_number in prs_to_update:
-        print(f"Updating PR #{pr_number} with {default_branch}...")
-        GitHubUtils.update_pr_branch(str(pr_number))
-
-
-def find_or_create_commentary_issue():
-    """Find existing 'Merge Queue Commentary' issue or create one"""
-    try:
-        # Search for existing issue with title and label
-        print("Searching for existing 'Merge Queue Commentary' issue...")
-        result = GitHubUtils.search_issue(
-            label='commentary',
-            state='open',
-            search='Merge Queue Commentary in:title',
-            json_fields='number,title'
-        )
-
-        if not result.success:
-            raise Exception(f"Failed to search for issues: {result.stderr}")
-
-        issues = json.loads(result.stdout)
-
-        # Check if we found the exact issue
-        for issue in issues:
-            if issue['title'] == 'Merge Queue Commentary':
-                print(f"Found existing commentary issue #{issue['number']}")
-                return issue['number']
-
-        # Issue not found, create it
-        print("Commentary issue not found, creating new one...")
-
-        # First, ensure the 'commentary' label exists
-        print("Ensuring 'commentary' label exists...")
-        label_result = GitHubUtils.create_label(
-            'commentary',
-            'Issues for automated workflow commentary',
-            '0366d6'
-        )
-        if not label_result.success:
-            raise Exception(f"Failed to create label: {label_result.error_details}")
-
-        # Now create the issue
-        result = GitHubUtils.create_issue(
-            'Merge Queue Commentary',
-            'This issue tracks automated PR merge queue execution summaries.',
-            'commentary'
-        )
-
-        if not result.success:
-            raise Exception(f"Failed to create issue: {result.stderr}")
-
-        # Extract issue number from the created issue URL
-        # Format: https://github.com/owner/repo/issues/123
-        issue_url = result.stdout.strip()
-        issue_number = issue_url.split('/')[-1]
-        print(f"Created new commentary issue #{issue_number}")
-        return int(issue_number)
-
-    except Exception as e:
-        print(f"Error finding/creating commentary issue: {e}", file=sys.stderr)
-        raise
-
-
-def add_summary_comment(issue_number, summary):
-    """Add summary as comment to the commentary issue"""
-    try:
-        print(f"Adding summary comment to issue #{issue_number}...")
-
-        # Add timestamp and format the comment
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')
-        comment_body = f"## Workflow Execution - {timestamp}\n\n{summary}"
-
-        result = GitHubUtils.add_comment(str(issue_number), comment_body)
-
-        if not result.success:
-            raise Exception(f"Failed to add comment: {result.error_details}")
-
-        print(f"Successfully added summary comment to issue #{issue_number}")
-
-    except Exception as e:
-        print(f"Error adding comment to issue #{issue_number}: {e}", file=sys.stderr)
-        raise
-
-
-def post_summary_to_original_issue(issue_number, summary):
+def post_summary_to_original_issue(issue_number: str, summary: str, will_close: bool = True) -> None:
     """Post the merge queue summary to the original issue that triggered the workflow"""
     print(f"Posting summary to original issue #{issue_number}...")
 
     # Add a header to indicate this is the final summary
-    final_summary = f"""## 🎯 **Merge Queue Results**
+    if will_close:
+        footer: str = "*This merge queue request has been completed. The issue will now be closed automatically.*"
+    else:
+        footer = "*This merge queue request encountered issues and requires manual review. The issue will remain open.*"
+
+    final_summary: str = f"""## 🎯 **Merge Queue Results**
 
 {summary}
 
 ---
-*This merge queue request has been completed. The issue will now be closed automatically.*"""
+{footer}"""
 
     result = GitHubUtils.comment_on_pr(str(issue_number), final_summary)
     if result.success:
@@ -331,11 +270,11 @@ def post_summary_to_original_issue(issue_number, summary):
         raise Exception(f"Failed to post summary to issue #{issue_number}")
 
 
-def close_original_issue(issue_number):
+def close_original_issue(issue_number: str) -> None:
     """Close the original issue that triggered the merge queue workflow"""
     print(f"Closing original issue #{issue_number}...")
 
-    close_comment = 'Merge queue workflow completed. This issue is now closed automatically.'
+    close_comment: str = 'Merge queue workflow completed. This issue is now closed automatically.'
     result = GitHubUtils.close_issue_with_comment(str(issue_number), close_comment)
     if result.success:
         print(f"✅ Successfully closed issue #{issue_number}")
@@ -344,33 +283,67 @@ def close_original_issue(issue_number):
         # Don't raise exception for close failure - summary was already posted
 
 
-def main():
+def should_close_issue(data: MergeQueueData) -> bool:
+    """
+    Determine if the issue should be closed based on workflow results.
+
+    Close the issue only if:
+    1. At least one PR was requested for processing, AND
+    2. The workflow completed successfully (not blocked by consecutive execution or other early failures)
+
+    Returns:
+        bool: True if issue should be closed, False otherwise
+    """
+    # If no PRs were requested, don't close (likely a configuration issue)
+    if data.total_requested == 0:
+        print("❌ No PRs were requested - issue will remain open for review")
+        return False
+
+    # If we have any results (merged or failed), it means the workflow processed PRs
+    total_processed: int = (len(data.merged) + len(data.unmergeable) +
+                           len(data.failed_update) + len(data.failed_ci) +
+                           len(data.timeout) + len(data.startup_timeout) +
+                           len(data.failed_merge))
+
+    if total_processed > 0:
+        print(f"✅ Workflow processed {total_processed} PRs - issue will be closed")
+        return True
+    else:
+        print("❌ No PRs were processed - issue will remain open (likely blocked by consecutive execution or early failure)")
+        return False
+
+
+def main() -> None:
     """Main execution"""
     try:
         # Parse environment data
-        data = parse_environment_data()
+        data: MergeQueueData = parse_environment_data()
 
         # Display summary
-        summary = generate_summary(data)
+        summary: str = generate_summary(data)
         print("=" * 50)
         print(summary)
         print("=" * 50)
 
-        # Post summary to original issue and close it
-        if data['original_issue_number']:
-            post_summary_to_original_issue(data['original_issue_number'], summary)
-            close_original_issue(data['original_issue_number'])
+        # Determine if issue should be closed
+        should_close: bool = should_close_issue(data)
+
+        # Post summary to original issue
+        if data.original_issue_number:
+            post_summary_to_original_issue(data.original_issue_number, summary, will_close=should_close)
+
+            # Only close if workflow actually processed PRs
+            if should_close:
+                close_original_issue(data.original_issue_number)
+            else:
+                print(f"Issue #{data.original_issue_number} will remain open for manual review")
         else:
             print("Warning: No original issue number provided, skipping issue update")
 
         # Comment on failed PRs
         comment_on_failed_prs(data)
 
-        # Update PRs with default branch (for CI failures, timeouts, and merge failures)
-        prs_to_update = data['failed_ci'] + data['timeout'] + data['startup_timeout'] + data['failed_merge']
-        update_prs_with_default_branch(prs_to_update, data['default_branch'])
-
-        print("PR notifications and updates completed successfully")
+        print("PR notifications completed successfully")
 
     except Exception as e:
         print(f"Failed to process PR notifications: {e}", file=sys.stderr)
