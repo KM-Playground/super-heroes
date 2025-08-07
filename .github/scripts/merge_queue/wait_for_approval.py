@@ -21,6 +21,9 @@ from common.gh_utils import GitHubUtils
 
 def parse_iso_timestamp(timestamp_str: str) -> Optional[datetime]:
     """Parse ISO 8601 timestamp string to datetime object."""
+    if not timestamp_str or timestamp_str.strip() == "":
+        return None
+
     try:
         # Handle both with and without microseconds
         if '.' in timestamp_str:
@@ -53,7 +56,12 @@ def get_comments_after_timestamp(issue_number: int, trigger_timestamp: str) -> L
         # Filter comments after trigger time
         filtered_comments: List[Dict[str, Any]] = []
         for comment in comments:
-            comment_dt = parse_iso_timestamp(comment.get("created_at", ""))
+            created_at = comment.get("createdAt")  # GitHub CLI uses camelCase
+            if not created_at:
+                print(f"⚠️ Comment missing createdAt timestamp, skipping: {comment.get('id', 'unknown')}")
+                continue
+
+            comment_dt = parse_iso_timestamp(created_at)
             if comment_dt and comment_dt > trigger_dt:
                 # Skip bot comments
                 author = comment.get("author", {}).get("login", "")

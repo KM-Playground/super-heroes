@@ -205,12 +205,7 @@ class GitHubUtils:
 
         return GitHubUtils._run_gh_command(args, check=False)
 
-    @staticmethod
-    def get_comment_timestamp(comment_id: str) -> CommandResult:
-        """Get comment timestamp using GitHub API."""
-        return GitHubUtils._run_gh_command([
-            "api", f"repos/:owner/:repo/issues/comments/{comment_id}"
-        ], check=False)
+
 
     @staticmethod
     def get_pr_comments(pr_number: str) -> CommandResult:
@@ -305,10 +300,38 @@ class GitHubUtils:
 
     @staticmethod
     def get_all_comments(issue_number: str) -> CommandResult:
-        """Get all comments for an issue or PR."""
+        """
+        Get all comments for an issue or PR with consistent field names.
+
+        Note: Uses GitHub CLI which returns camelCase field names (e.g., 'createdAt').
+        This is different from the REST API which uses snake_case (e.g., 'created_at').
+        """
         return GitHubUtils._run_gh_command([
             "issue", "view", issue_number, "--json", "comments"
         ])
+
+    @staticmethod
+    def find_comment_by_id(issue_number: str, comment_id: str) -> dict:
+        """Find a specific comment by ID from all comments on an issue/PR."""
+        result = GitHubUtils.get_all_comments(issue_number)
+
+        if not result.success:
+            return {}
+
+        try:
+            import json
+            data = json.loads(result.stdout)
+            comments = data.get("comments", [])
+
+            # Find the comment with matching ID
+            for comment in comments:
+                if comment.get("id") == comment_id:
+                    return comment
+
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+        return {}
 
     @staticmethod
     def is_team_member(username: str, org: str, team: str) -> bool:

@@ -295,29 +295,22 @@ def trigger_ci_and_get_timestamp(pr_number: int) -> str:
   comment_id = comment_id_match.group(1)
   print(f"✅ CI triggered for PR #{pr_number}, comment ID: {comment_id}")
 
-  # Get the precise timestamp of the comment using GitHub API
-  result = GitHubUtils.get_comment_timestamp(comment_id)
+  # Get the precise timestamp of the comment using unified approach
+  comment = GitHubUtils.find_comment_by_id(str(pr_number), comment_id)
 
-  if not result.success:
-    print(f"⚠️ Failed to get comment timestamp for comment {comment_id}")
-    if result.stderr:
-      print(f"Error: {result.stderr}")
+  if not comment:
+    print(f"⚠️ Could not find comment {comment_id} on PR #{pr_number}")
     return ""
 
-  try:
-    comment_details = json.loads(result.stdout)
-    created_at = comment_details.get("created_at", "")
+  # Use consistent field name (camelCase from GitHub CLI)
+  created_at = comment.get("createdAt", "")
 
-    if not created_at:
-      print(f"⚠️ Could not get created_at timestamp for comment {comment_id}")
-      return ""
-
-    print(f"✅ Comment created at: {created_at}")
-    return created_at
-
-  except (json.JSONDecodeError, KeyError):
-    print(f"⚠️ Could not parse comment details for comment {comment_id}")
+  if not created_at:
+    print(f"⚠️ Comment {comment_id} missing createdAt timestamp")
     return ""
+
+  print(f"✅ Comment created at: {created_at}")
+  return created_at
 
 
 def wait_for_ci_job_started_comment(pr_number: int, trigger_time: str,
