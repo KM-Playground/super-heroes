@@ -73,7 +73,7 @@ def tag_team_for_approval(issue_number: int, commenter: str, pr_numbers: str, re
     approval_message = create_approval_message(commenter, pr_numbers, release_pr)
     
     # Post the comment
-    result = GitHubUtils.comment_on_pr(str(issue_number), approval_message)
+    result = GitHubUtils.add_comment(str(issue_number), approval_message)
     
     if result.success:
         print("✅ Successfully tagged merge-approvals team for approval")

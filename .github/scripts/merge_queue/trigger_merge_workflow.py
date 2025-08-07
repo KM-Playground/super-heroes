@@ -98,7 +98,7 @@ The merge queue workflow has been triggered successfully.
 
 *This issue will be automatically updated with the final results.*"""
     
-    result = GitHubUtils.comment_on_pr(str(issue_number), confirmation_message)
+    result = GitHubUtils.add_comment(str(issue_number), confirmation_message)
     
     if result.success:
         print("✅ Successfully posted confirmation message")
