@@ -6,10 +6,11 @@ name: Merge Queue Drainer
 # WORKFLOW PROCESS:
 # 1. User creates an issue using the merge queue template
 # 2. User comments 'begin-merge' to trigger the workflow
-# 3. System extracts PR information from the issue body
-# 4. merge-approvals team is tagged for approval with 60-minute timeout
-# 5. Upon approval, PRs are validated and merged sequentially
-# 6. Results are posted back to the original issue, which is then closed
+# 3. System checks for duplicate runs and prevents conflicts
+# 4. System extracts PR information from the issue body
+# 5. merge-approvals team is tagged for approval with 60-minute timeout
+# 6. Upon approval, PRs are validated and merged sequentially
+# 7. Results are posted back to the original issue, which is then closed
 #
 # IMPORTANT: This workflow requires a CI_TRIGGER_TOKEN secret to trigger CI workflows.
 # The CI_TRIGGER_TOKEN must be a Personal Access Token (PAT) or GitHub App token
@@ -39,23 +40,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
       - name: Check for duplicate runs (early lock check)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
           echo "🔒 Early duplicate run check..."
-
-          # Quick check for existing tracking issues to prevent race conditions
-          EXISTING_TRACKING=$(gh issue list --state open --label "distributed-lock" --search "MERGE QUEUE TRACKING Issue #$ISSUE_NUMBER" --json number --jq '.[0].number // empty')
-
-          if [ -n "$EXISTING_TRACKING" ]; then
-            echo "❌ Duplicate run detected - tracking issue #$EXISTING_TRACKING already exists"
-            echo "This workflow run will be cancelled to prevent conflicts"
-            exit 1
-          fi
-
-          echo "✅ No existing tracking issue found - proceeding"
+          python3 .github/scripts/merge_queue/check_duplicate_runs.py
 
       - name: Get team members
         id: get-members
@@ -114,7 +110,7 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Initialize merge queue with duplicate prevention
+      - name: Initialize merge queue
         id: initialize
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -122,7 +118,7 @@ jobs:
           ISSUE_BODY: ${{ github.event.issue.body }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
-          echo "Initializing merge queue with duplicate prevention..."
+          echo "Initializing merge queue..."
           python3 .github/scripts/merge_queue/initialize_merge_queue.py
 
       - name: Tag merge-approvals team for approval

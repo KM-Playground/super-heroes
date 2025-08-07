@@ -68,45 +68,7 @@ This issue tracks an active merge queue process to prevent duplicate runs.
 """
 
 
-def find_existing_tracking_issue(original_issue_number: int) -> Optional[int]:
-    """
-    Find an existing tracking issue for the given original issue number.
 
-    Returns:
-        The tracking issue number if found, None otherwise
-    """
-    print(f"Searching for existing tracking issue for original issue #{original_issue_number}...")
-
-    # Use label-based filtering for efficient searching
-    # Only look at issues with the "distributed-lock" label
-    title_pattern = f"[MERGE QUEUE TRACKING] Issue #{original_issue_number}"
-
-    result = GitHubUtils.list_issues(
-        state="open",
-        label="distributed-lock",
-        limit=50  # Should be more than enough for active locks
-    )
-
-    if not result.success:
-        print(f"⚠️ Failed to list distributed-lock issues: {result.error_details}")
-        return None
-
-    try:
-        issues = json.loads(result.stdout)
-
-        for issue in issues:
-            title = issue.get("title", "")
-            if title.startswith(title_pattern):
-                issue_number = issue.get("number")
-                print(f"✅ Found existing tracking issue: #{issue_number}")
-                return issue_number
-
-        print("✅ No existing tracking issue found")
-        return None
-
-    except json.JSONDecodeError as e:
-        print(f"❌ Error parsing distributed-lock issue list: {e}")
-        return None
 
 
 def create_tracking_issue(original_issue_number: int, pr_numbers: str, release_pr: Optional[str] = None) -> Optional[int]:
@@ -144,45 +106,7 @@ def create_tracking_issue(original_issue_number: int, pr_numbers: str, release_p
         return None
 
 
-def check_and_prevent_duplicate_run(original_issue_number: int) -> bool:
-    """
-    Check for existing tracking issue and prevent duplicate run if found.
 
-    Returns:
-        True if execution should proceed (no duplicates)
-        False if execution should be blocked (duplicate found)
-    """
-    print("=== Duplicate Run Prevention Check ===")
-    print(f"Original Issue: #{original_issue_number}")
-    print("=====================================")
-
-    existing_tracking_issue = find_existing_tracking_issue(original_issue_number)
-
-    if existing_tracking_issue:
-        print(f"❌ Duplicate run detected - tracking issue #{existing_tracking_issue} exists")
-
-        # Post message to original issue about duplicate prevention
-        duplicate_message = f"""⚠️ **Duplicate Merge Queue Request Detected**
-
-A merge queue process is already running for this issue.
-
-**Tracking Issue**: #{existing_tracking_issue}
-**Action Required**: Wait for the current process to complete.
-
-**Monitor Progress**: Check the tracking issue above for status updates.
-
-**Retry**: Once the current process completes, you can comment `begin-merge` again if needed."""
-
-        result = GitHubUtils.add_comment(str(original_issue_number), duplicate_message)
-        if result.success:
-            print("✅ Posted duplicate prevention message to original issue")
-        else:
-            print(f"⚠️ Failed to post duplicate message: {result.error_details}")
-
-        return False
-
-    print("✅ No duplicate run detected - proceeding")
-    return True
 
 
 def initialize_tracking_issue(original_issue_number: int, pr_numbers: str, release_pr: Optional[str] = None) -> Optional[int]:
@@ -308,21 +232,9 @@ def main() -> int:
     print(f"Issue: #{issue_number}")
     print(f"Repository: {repository}")
     print("==================================")
-    
-    # Step 1: Check for duplicate runs using tracking issues
-    print("\n🔒 Step 1: Duplicate Prevention Check")
-    print("------------------------------------")
-    
-    can_proceed = check_and_prevent_duplicate_run(issue_number)
-    
-    if not can_proceed:
-        print("❌ Duplicate run detected - aborting to prevent conflicts")
-        return 1
-    
-    print("✅ No duplicate run detected - proceeding")
-    
-    # Step 2: Extract PR information from issue body
-    print("\n📋 Step 2: Extract PR Information")
+
+    # Step 1: Extract PR information from issue body
+    print("\n📋 Step 1: Extract PR Information")
     print("---------------------------------")
 
     pr_info = extract_pr_info_from_issue_body(issue_body)
@@ -330,9 +242,9 @@ def main() -> int:
     print(f"PR Numbers: {pr_info.pr_numbers}")
     print(f"Release PR: {pr_info.release_pr if pr_info.release_pr else '(none)'}")
     print(f"Required Approvals Override: {pr_info.required_approvals if pr_info.required_approvals else '(none)'}")
-    
-    # Step 3: Initialize tracking issue
-    print("\n🚀 Step 3: Initialize Tracking Issue")
+
+    # Step 2: Initialize tracking issue
+    print("\n🚀 Step 2: Initialize Tracking Issue")
     print("------------------------------------")
     
     tracking_issue_number = initialize_tracking_issue(issue_number, pr_info.pr_numbers, pr_info.release_pr)
@@ -341,7 +253,7 @@ def main() -> int:
         print(f"✅ Tracking issue initialized: #{tracking_issue_number}")
         
         # Export tracking issue number and PR info for use in later workflow steps
-        print("\n📤 Step 4: Export Information for Workflow")
+        print("\n📤 Step 3: Export Information for Workflow")
         print("------------------------------------------")
         
         # Write to GitHub Actions output
@@ -375,7 +287,6 @@ def main() -> int:
         
         print("\n🎉 Merge Queue Initialization Complete!")
         print("======================================")
-        print(f"✅ Duplicate prevention: Passed")
         print(f"✅ Tracking issue: #{tracking_issue_number}")
         print(f"✅ PR information: Extracted and exported")
         print(f"✅ Ready for next workflow steps")
