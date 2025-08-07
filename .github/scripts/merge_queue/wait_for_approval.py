@@ -133,9 +133,18 @@ def check_for_approval_or_rejection(issue_number: int, trigger_timestamp: str, o
 
 def send_reminder(issue_number: int, remaining_minutes: int) -> None:
     """Send a reminder comment to the issue."""
+    # Get repository info to extract organization name for proper team tagging
+    try:
+        repository = GitHubUtils.get_env_var("GITHUB_REPOSITORY")
+        org = repository.split('/')[0]
+        team_tag = f"@{org}/merge-approvals"
+    except (ValueError, AttributeError):
+        print("⚠️ GITHUB_REPOSITORY environment variable not set, using fallback team tag")
+        team_tag = "@merge-approvals"
+
     reminder_message: str = f"""⏰ **Reminder**: Merge queue approval still pending
 
-@merge-approvals - Please review and approve this merge request.
+{team_tag} - Please review and approve this merge request.
 
 **Time remaining**: {remaining_minutes} minutes
 **To approve**: React with 👍 or reply with 'approved'
