@@ -43,8 +43,26 @@ def check_consecutive_execution(issue_number: int, repository: str) -> bool:
     """
     print("Checking for existing merge queue workflow runs...")
 
+    # Get current workflow filename from GitHub Actions environment
+    # GITHUB_WORKFLOW_REF format: "owner/repo/.github/workflows/workflow.yml@refs/heads/branch"
+    workflow_ref = GitHubUtils.get_env_var("GITHUB_WORKFLOW_REF", "")
+    workflow_filename = "merge_queue.yaml"
+    if workflow_ref:
+        # Extract filename from the workflow reference
+        # Split by '/' and get the second-to-last element (which contains "filename@refs/heads")
+        # Then split by '@' to get just the filename
+        parts = workflow_ref.split('/')
+        if len(parts) >= 2:
+            workflow_filename = parts[-2].split('@')[0]  # Get "workflow.yml" from "workflow.yml@refs/heads"
+            print(f"Detected current workflow: {workflow_filename}")
+        else:
+            print(f"Could not parse workflow reference '{workflow_ref}', using fallback: {workflow_filename}")
+    else:
+        # Fallback to hardcoded name if environment variable is not available
+        print(f"Using fallback workflow name: {workflow_filename}")
+
     # Check for running merge queue workflows (now unified into single workflow)
-    running_merge = get_running_workflows("merge_queue.yaml")
+    running_merge = get_running_workflows(workflow_filename)
 
     merge_count = len(running_merge)
 
