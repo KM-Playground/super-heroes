@@ -18,6 +18,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from common.gh_utils import GitHubUtils
 
+# Global set to track unauthorized comments we've already warned about
+warned_unauthorized_comments = set()
+
 
 def parse_iso_timestamp(timestamp_str: str) -> Optional[datetime]:
     """Parse ISO 8601 timestamp string to datetime object."""
@@ -124,17 +127,28 @@ def check_for_approval_or_rejection(issue_number: int, trigger_timestamp: str, o
                 return "approved", author
             elif team_members:
                 print(f"⚠️ Approval from unauthorized user: {author} (not in team: {', '.join(team_members)})")
-                # Post warning but continue checking
-                warning_message: str = f"""⚠️ **Unauthorized Approval Attempt**
+
+                # Create a unique identifier for this comment to avoid duplicate warnings
+                comment_id = comment.get("id", "")
+                comment_key = f"{author}_{comment_id}"
+
+                # Only post warning if we haven't already warned about this comment
+                if comment_key not in warned_unauthorized_comments:
+                    warning_message: str = f"""⚠️ **Unauthorized Approval Attempt**
 
 @{author} attempted to approve this request, but is not a member of the `merge-approvals` team.
 
 **Required**: Approval must come from a member of the `merge-approvals` team.
 **Current team members**: {', '.join([f'@{member}' for member in team_members])}"""
 
-                result = GitHubUtils.add_comment(str(issue_number), warning_message)
-                if not result.success:
-                    print(f"⚠️ Failed to post warning comment: {result.error_details}")
+                    result = GitHubUtils.add_comment(str(issue_number), warning_message)
+                    if result.success:
+                        warned_unauthorized_comments.add(comment_key)
+                        print(f"✅ Posted warning for unauthorized approval from {author}")
+                    else:
+                        print(f"⚠️ Failed to post warning comment: {result.error_details}")
+                else:
+                    print(f"⚠️ Already warned about unauthorized approval from {author} (comment {comment_id})")
             else:
                 # Fallback to API check if we couldn't get team members list
                 print(f"⚠️ Could not retrieve team members, falling back to API check")
@@ -143,15 +157,27 @@ def check_for_approval_or_rejection(issue_number: int, trigger_timestamp: str, o
                     return "approved", author
                 else:
                     print(f"⚠️ Approval from unauthorized user: {author}")
-                    warning_message: str = f"""⚠️ **Unauthorized Approval Attempt**
+
+                    # Create a unique identifier for this comment to avoid duplicate warnings
+                    comment_id = comment.get("id", "")
+                    comment_key = f"{author}_{comment_id}"
+
+                    # Only post warning if we haven't already warned about this comment
+                    if comment_key not in warned_unauthorized_comments:
+                        warning_message: str = f"""⚠️ **Unauthorized Approval Attempt**
 
 @{author} attempted to approve this request, but is not a member of the `merge-approvals` team.
 
 **Required**: Approval must come from a member of the `merge-approvals` team."""
 
-                    result = GitHubUtils.add_comment(str(issue_number), warning_message)
-                    if not result.success:
-                        print(f"⚠️ Failed to post warning comment: {result.error_details}")
+                        result = GitHubUtils.add_comment(str(issue_number), warning_message)
+                        if result.success:
+                            warned_unauthorized_comments.add(comment_key)
+                            print(f"✅ Posted warning for unauthorized approval from {author}")
+                        else:
+                            print(f"⚠️ Failed to post warning comment: {result.error_details}")
+                    else:
+                        print(f"⚠️ Already warned about unauthorized approval from {author} (comment {comment_id})")
 
         # Check for rejection
         elif any(keyword in body for keyword in rejection_keywords):
