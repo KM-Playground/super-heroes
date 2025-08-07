@@ -417,6 +417,91 @@ class GitHubUtils:
         return usernames
 
     @staticmethod
+    def create_issue(title: str, body: str, labels: list[str] = None) -> CommandResult:
+        """
+        Create a new issue.
+
+        Args:
+            title: Issue title
+            body: Issue body
+            labels: Optional list of labels to add
+
+        Returns:
+            CommandResult with issue data in stdout if successful
+        """
+        cmd = ["issue", "create", "--title", title, "--body", body]
+
+        if labels:
+            for label in labels:
+                cmd.extend(["--label", label])
+
+        return GitHubUtils._run_gh_command(cmd, check=False)
+
+    @staticmethod
+    def close_issue(issue_number: int) -> CommandResult:
+        """
+        Close an issue.
+
+        Args:
+            issue_number: Issue number to close
+
+        Returns:
+            CommandResult indicating success/failure
+        """
+        return GitHubUtils._run_gh_command([
+            "issue", "close", str(issue_number)
+        ], check=False)
+
+    @staticmethod
+    def search_issue(state: str = "open", search: str = "", **kwargs) -> CommandResult:
+        """
+        Search for issues.
+
+        Args:
+            state: Issue state ("open", "closed", "all")
+            search: Search query
+            **kwargs: Additional search parameters
+
+        Returns:
+            CommandResult with search results in JSON format
+        """
+        cmd = ["search", "issues", "--json", "number,title,state,url"]
+
+        if state != "all":
+            cmd.extend(["--state", state])
+
+        if search:
+            cmd.append(search)
+
+        return GitHubUtils._run_gh_command(cmd, check=False)
+
+    @staticmethod
+    def list_issues(state: str = "open", label: str = None, limit: int = 30) -> CommandResult:
+        """
+        List issues in the repository.
+
+        Args:
+            state: Issue state ("open", "closed", "all")
+            label: Filter by label
+            limit: Maximum number of issues to return
+
+        Returns:
+            CommandResult with issue list in JSON format
+        """
+        cmd = ["issue", "list", "--json", "number,title,state,labels"]
+
+        if state != "all":
+            cmd.extend(["--state", state])
+
+        if label:
+            cmd.extend(["--label", label])
+
+        if limit:
+            cmd.extend(["--limit", str(limit)])
+
+        return GitHubUtils._run_gh_command(cmd, check=False)
+
+    @staticmethod
     def get_running_workflows(workflow_name: str) -> CommandResult:
         """Get list of running workflows for a specific workflow file."""
         return GitHubUtils._run_gh_command([
