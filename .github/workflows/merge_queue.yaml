@@ -39,6 +39,24 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Check for duplicate runs (early lock check)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          echo "🔒 Early duplicate run check..."
+
+          # Quick check for existing tracking issues to prevent race conditions
+          EXISTING_TRACKING=$(gh issue list --state open --label "distributed-lock" --search "MERGE QUEUE TRACKING Issue #$ISSUE_NUMBER" --json number --jq '.[0].number // empty')
+
+          if [ -n "$EXISTING_TRACKING" ]; then
+            echo "❌ Duplicate run detected - tracking issue #$EXISTING_TRACKING already exists"
+            echo "This workflow run will be cancelled to prevent conflicts"
+            exit 1
+          fi
+
+          echo "✅ No existing tracking issue found - proceeding"
+
       - name: Get team members
         id: get-members
         env:
