@@ -262,7 +262,7 @@ def post_summary_to_original_issue(issue_number: str, summary: str, will_close: 
 ---
 {footer}"""
 
-    result = GitHubUtils.comment_on_pr(str(issue_number), final_summary)
+    result = GitHubUtils.add_comment(str(issue_number), final_summary)
     if result.success:
         print(f"✅ Successfully posted summary to issue #{issue_number}")
     else:

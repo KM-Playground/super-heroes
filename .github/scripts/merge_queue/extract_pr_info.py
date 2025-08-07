@@ -146,7 +146,7 @@ def post_error_comment(issue_number: int, error_message: str) -> None:
 
 **To Fix**: Edit the issue description or create a new issue with the correct information."""
     
-    result = GitHubUtils.comment_on_pr(str(issue_number), full_message)
+    result = GitHubUtils.add_comment(str(issue_number), full_message)
     if result.success:
         print("✅ Posted error comment to issue")
     else:

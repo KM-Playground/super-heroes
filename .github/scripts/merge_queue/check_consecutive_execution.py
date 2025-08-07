@@ -89,7 +89,7 @@ There are already active merge queue workflows running:
 
 **Retry**: Comment `begin-merge` again once all workflows have completed."""
 
-        result = GitHubUtils.comment_on_pr(str(issue_number), blocking_message)
+        result = GitHubUtils.add_comment(str(issue_number), blocking_message)
         if result.success:
             print("✅ Posted consecutive execution prevention message")
         else:
