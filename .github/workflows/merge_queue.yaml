@@ -33,6 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      issues: write
     outputs:
       team_members: ${{ steps.get-members.outputs.team_members }}
       team_tag: ${{ steps.get-members.outputs.team_tag }}
