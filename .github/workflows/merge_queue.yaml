@@ -8,7 +8,7 @@ name: Merge Queue Drainer
 # 2. User comments 'begin-merge' to trigger the workflow
 # 3. System checks for duplicate runs and prevents conflicts
 # 4. System extracts PR information from the issue body
-# 5. merge-approvals team is tagged for approval with 60-minute timeout
+# 5. merge-approvals team is tagged for approval with configurable timeout
 # 6. Upon approval, PRs are validated and merged sequentially
 # 7. Results are posted back to the original issue, which is then closed
 #
@@ -21,6 +21,11 @@ name: Merge Queue Drainer
 on:
   issue_comment:
     types: [created]
+
+env:
+  # Default values for approval timeout and reminder interval
+  DEFAULT_APPROVAL_TIMEOUT_MINUTES: 60
+  DEFAULT_APPROVAL_REMINDER_INTERVAL_MINUTES: 15
 
 jobs:
 
@@ -131,10 +136,14 @@ jobs:
           RELEASE_PR: ${{ steps.initialize.outputs.release_pr }}
           TEAM_MEMBERS: ${{ needs.get-team-info.outputs.team_members }}
           TEAM_TAG: ${{ needs.get-team-info.outputs.team_tag }}
+          APPROVAL_TIMEOUT_MINUTES: ${{ vars.MERGE_QUEUE_APPROVAL_TIMEOUT_MINUTES || env.DEFAULT_APPROVAL_TIMEOUT_MINUTES }}
+          APPROVAL_REMINDER_INTERVAL_MINUTES: ${{ vars.MERGE_QUEUE_APPROVAL_REMINDER_INTERVAL_MINUTES || env.DEFAULT_APPROVAL_REMINDER_INTERVAL_MINUTES }}
         run: |
           echo "Starting team approval request..."
           echo "Team members: $TEAM_MEMBERS"
           echo "Team tag: $TEAM_TAG"
+          echo "Approval timeout: $APPROVAL_TIMEOUT_MINUTES minutes"
+          echo "Reminder interval: $APPROVAL_REMINDER_INTERVAL_MINUTES minutes"
           python3 .github/scripts/merge_queue/tag_team_for_approval.py
 
       - name: Wait for approval with reminders
@@ -146,9 +155,13 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           TEAM_MEMBERS: ${{ needs.get-team-info.outputs.team_members }}
           TEAM_TAG: ${{ needs.get-team-info.outputs.team_tag }}
+          APPROVAL_TIMEOUT_MINUTES: ${{ vars.MERGE_QUEUE_APPROVAL_TIMEOUT_MINUTES || env.DEFAULT_APPROVAL_TIMEOUT_MINUTES }}
+          APPROVAL_REMINDER_INTERVAL_MINUTES: ${{ vars.MERGE_QUEUE_APPROVAL_REMINDER_INTERVAL_MINUTES || env.DEFAULT_APPROVAL_REMINDER_INTERVAL_MINUTES }}
         run: |
           echo "Starting approval wait process..."
           echo "Team members for validation: $TEAM_MEMBERS"
+          echo "Approval timeout: $APPROVAL_TIMEOUT_MINUTES minutes"
+          echo "Reminder interval: $APPROVAL_REMINDER_INTERVAL_MINUTES minutes"
           python3 .github/scripts/merge_queue/wait_for_approval.py
 
     outputs:
@@ -362,7 +375,8 @@ jobs:
             # Approval step completed but returned false - check specific reason
             if [[ "${{ needs.check-trigger.outputs.rejection_reason }}" == "timeout" ]]; then
               echo "COMPLETION_STATUS=timeout" >> $GITHUB_ENV
-              echo "SUMMARY_MESSAGE=Merge queue request timed out after 60 minutes without approval." >> $GITHUB_ENV
+              TIMEOUT_MINUTES="${{ vars.MERGE_QUEUE_APPROVAL_TIMEOUT_MINUTES || env.DEFAULT_APPROVAL_TIMEOUT_MINUTES }}"
+              echo "SUMMARY_MESSAGE=Merge queue request timed out after $TIMEOUT_MINUTES minutes without approval." >> $GITHUB_ENV
             elif [[ "${{ needs.check-trigger.outputs.rejection_reason }}" == "rejected" ]]; then
               echo "COMPLETION_STATUS=rejected" >> $GITHUB_ENV
               echo "SUMMARY_MESSAGE=Merge queue request was rejected by an authorized team member." >> $GITHUB_ENV

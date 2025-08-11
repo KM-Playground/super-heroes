@@ -72,7 +72,7 @@ def get_team_tag_from_env() -> str:
             return "@merge-approvals"
 
 
-def create_approval_message(commenter: str, pr_numbers: str, member_tags: str, release_pr: Optional[str] = None) -> str:
+def create_approval_message(commenter: str, pr_numbers: str, member_tags: str, release_pr: Optional[str] = None, timeout_minutes: int = 60, reminder_interval: int = 15) -> str:
     """
     Create the approval request message.
 
@@ -81,6 +81,8 @@ def create_approval_message(commenter: str, pr_numbers: str, member_tags: str, r
         pr_numbers: Comma-separated PR numbers
         member_tags: String with team member tags
         release_pr: Optional release PR number
+        timeout_minutes: Timeout in minutes for approval
+        reminder_interval: Reminder interval in minutes
 
     Returns:
         Formatted approval request message
@@ -100,8 +102,8 @@ def create_approval_message(commenter: str, pr_numbers: str, member_tags: str, r
 
 **Action Required**: Please review the PRs and approve this merge queue request.
 
-⏰ **Timeout**: This request will timeout in 60 minutes if not approved.
-📋 **Reminders**: You'll receive reminders every 15 minutes.
+⏰ **Timeout**: This request will timeout in {timeout_minutes} minutes if not approved.
+📋 **Reminders**: You'll receive reminders every {reminder_interval} minutes.
 
 **To approve**: Reply with 'approved'
 **To reject**: Reply with 'rejected'
@@ -129,11 +131,33 @@ def tag_team_for_approval(issue_number: int, commenter: str, pr_numbers: str, re
     print(f"PR Numbers: {pr_numbers}")
     print(f"Release PR: {release_pr if release_pr else '(none)'}")
 
+    # Get configurable timeout and reminder interval values
+    timeout_minutes_str: str = GitHubUtils.get_env_var("APPROVAL_TIMEOUT_MINUTES", "60")
+    reminder_interval_str: str = GitHubUtils.get_env_var("APPROVAL_REMINDER_INTERVAL_MINUTES", "15")
+
+    # Convert to int with validation
+    try:
+        timeout_minutes: int = int(timeout_minutes_str)
+        if timeout_minutes <= 0:
+            timeout_minutes = 60
+    except ValueError:
+        timeout_minutes = 60
+
+    try:
+        reminder_interval: int = int(reminder_interval_str)
+        if reminder_interval <= 0:
+            reminder_interval = 15
+    except ValueError:
+        reminder_interval = 15
+
+    print(f"Timeout: {timeout_minutes} minutes")
+    print(f"Reminder interval: {reminder_interval} minutes")
+
     # Get team tag from environment variables (set by workflow)
     member_tags = get_team_tag_from_env()
 
     # Create the approval message
-    approval_message = create_approval_message(commenter, pr_numbers, member_tags, release_pr)
+    approval_message = create_approval_message(commenter, pr_numbers, member_tags, release_pr, timeout_minutes, reminder_interval)
 
     # Post the comment
     result = GitHubUtils.add_comment(str(issue_number), approval_message)
