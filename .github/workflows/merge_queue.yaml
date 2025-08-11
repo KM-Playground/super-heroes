@@ -108,6 +108,34 @@ jobs:
       issues: write
       pull-requests: read
     steps:
+      - name: Check re-run and issue state
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Run attempt: ${{ github.run_attempt }}"
+          echo "Issue number: ${{ github.event.issue.number }}"
+
+          # If this is a re-run, check current issue state
+          if [[ "${{ github.run_attempt }}" -gt 1 ]]; then
+            echo "⚠️ This is a re-run (attempt #${{ github.run_attempt }})"
+
+            # Check current issue state
+            CURRENT_STATE=$(gh issue view ${{ github.event.issue.number }} --json state --jq '.state')
+            echo "Current issue state: $CURRENT_STATE"
+
+            # Convert to lowercase for case-insensitive comparison
+            CURRENT_STATE_LOWER=$(echo "$CURRENT_STATE" | tr '[:upper:]' '[:lower:]')
+            if [[ "$CURRENT_STATE_LOWER" == "closed" ]]; then
+              echo "❌ Issue is closed. Re-runs on closed issues are not allowed."
+              echo "💡 This issue was already processed. No action needed."
+              exit 1
+            else
+              echo "✅ Issue is still open. Proceeding with re-run."
+            fi
+          else
+            echo "✅ This is the first run. Proceeding normally."
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
