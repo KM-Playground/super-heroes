@@ -336,7 +336,11 @@ jobs:
     name: Send Summary Notification
     needs: [check-trigger, validate-prs, merge-approved]
     runs-on: ubuntu-latest
-    if: always() && !cancelled()
+    if: |
+      always() && !cancelled() &&
+      github.event.issue.state == 'open' &&
+      contains(github.event.comment.body, 'begin-merge') &&
+      contains(github.event.issue.labels.*.name, 'merge-queue')
     permissions:
       contents: read
       issues: write
@@ -368,7 +372,7 @@ jobs:
           SUBMITTER: ${{ github.event.comment.user.login }}
           ORIGINAL_ISSUE_NUMBER: ${{ github.event.issue.number }}
 
-      - name: Close tracking issue
+      - name: Determine completion status
         if: always()
         run: |
           # Determine completion status based on job results and approval outcome
@@ -411,6 +415,9 @@ jobs:
             echo "SUMMARY_MESSAGE=Merge queue failed during execution." >> $GITHUB_ENV
           fi
 
+      - name: Close tracking issue
+        if: always()
+        run: |
           python3 .github/scripts/merge_queue/close_tracking_issue.py
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
