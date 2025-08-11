@@ -191,12 +191,11 @@ class GitHubUtils:
             )
 
     @staticmethod
-    def create_label(name: str, description: str, color: str) -> OperationResult:
+    def create_label(name: str, description: str) -> OperationResult:
         """Create a label using GitHub CLI."""
         result = GitHubUtils._run_gh_command([
             'label', 'create', name,
-            '--description', description,
-            '--color', color
+            '--description', description
         ], check=False)
 
         if result.success:

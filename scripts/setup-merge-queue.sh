@@ -45,13 +45,12 @@ echo ""
 create_label_if_not_exists() {
     local name="$1"
     local description="$2"
-    local color="$3"
-    
+
     if gh label list --json name --jq '.[].name' | grep -q "^${name}$"; then
         echo "✅ Label '${name}' already exists"
     else
         echo "📝 Creating label '${name}'..."
-        gh label create "${name}" --description "${description}" --color "${color}"
+        gh label create "${name}" --description "${description}"
         echo "✅ Created label '${name}'"
     fi
 }
@@ -60,9 +59,9 @@ echo "📋 Setting up required labels..."
 echo "-------------------------------"
 
 # Create required labels
-create_label_if_not_exists "merge-queue" "Issues that can trigger merge queue workflows" "0052cc"
-create_label_if_not_exists "distributed-lock" "Tracking issues for preventing duplicate merge queue runs" "d73a49"
-create_label_if_not_exists "automation" "Automated system-generated content" "fbca04"
+create_label_if_not_exists "merge-queue" "Issues that can trigger merge queue workflows"
+create_label_if_not_exists "distributed-lock" "Tracking issues for preventing duplicate merge queue runs"
+create_label_if_not_exists "automation" "Automated system-generated content"
 
 echo ""
 echo "🏷️  Label setup complete!"

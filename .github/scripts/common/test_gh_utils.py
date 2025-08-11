@@ -204,7 +204,7 @@ def test_create_label_success(mock_run_gh_command):
     mock_command_result = CommandResult(True, "label created", "")
     mock_run_gh_command.return_value = mock_command_result
 
-    result = GitHubUtils.create_label("bug", "Bug reports", "ff0000")
+    result = GitHubUtils.create_label("bug", "Bug reports")
 
     assert isinstance(result, OperationResult)
     assert result.success is True
@@ -217,7 +217,7 @@ def test_create_label_already_exists(mock_run_gh_command):
     mock_command_result = CommandResult(False, "", "already exists")
     mock_run_gh_command.return_value = mock_command_result
 
-    result = GitHubUtils.create_label("bug", "Bug reports", "ff0000")
+    result = GitHubUtils.create_label("bug", "Bug reports")
 
     assert isinstance(result, OperationResult)
     assert result.success is True  # Should be success when already exists

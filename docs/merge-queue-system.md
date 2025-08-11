@@ -20,17 +20,17 @@ The following labels must exist in your repository:
 #### 1. `merge-queue` (Required)
 - **Purpose**: Identifies issues that can trigger merge queue workflows
 - **Usage**: Applied to issues that contain merge queue requests
-- **Creation**: `gh label create merge-queue --description "Issues that can trigger merge queue workflows" --color "0052cc"`
+- **Creation**: `gh label create merge-queue --description "Issues that can trigger merge queue workflows"`
 
 #### 2. `distributed-lock` (Required)
 - **Purpose**: Identifies tracking issues used for duplicate run prevention
 - **Usage**: Automatically applied to tracking issues created by the system
-- **Creation**: `gh label create distributed-lock --description "Tracking issues for preventing duplicate merge queue runs" --color "d73a49"`
+- **Creation**: `gh label create distributed-lock --description "Tracking issues for preventing duplicate merge queue runs"`
 
 #### 3. `automation` (Optional but Recommended)
 - **Purpose**: Identifies automated system-generated issues
 - **Usage**: Applied to tracking issues and other automated content
-- **Creation**: `gh label create automation --description "Automated system-generated content" --color "fbca04"`
+- **Creation**: `gh label create automation --description "Automated system-generated content"`
 
 ### Required Team
 
@@ -43,6 +43,7 @@ The following labels must exist in your repository:
 ### Required Permissions
 
 The workflow requires the following permissions in the `GITHUB_TOKEN`:
+
 - `contents: read` - For repository access
 - `issues: write` - For creating/closing tracking issues and posting comments
 - `pull-requests: read` - For reading PR information
@@ -52,6 +53,7 @@ The workflow requires the following permissions in the `GITHUB_TOKEN`:
 The workflow requires a special token to trigger CI workflows and access team membership:
 
 **Steps to create the token:**
+
 1. Go to **GitHub Settings** → **Developer settings** → **Personal access tokens** → **Fine-grained tokens**
 2. Click **"Generate new token"**
 3. Configure with repository-specific access and these permissions:
@@ -67,6 +69,7 @@ The workflow requires a special token to trigger CI workflows and access team me
 ### GitHub Environment
 
 Create a `merge_queue` environment:
+
 1. Go to **repository Settings** → **Environments**
 2. Create environment named `merge_queue`
 3. Add `merge-approvals` team as required reviewers
@@ -77,13 +80,16 @@ Create a `merge_queue` environment:
 ### 1. Create a Merge Queue Request
 
 **Option A: Using GitHub Issue Template**
+
 1. Go to Issues tab → New Issue
 2. Select "🚀 Merge Queue Request" template
 3. Fill in PR numbers, release PR (optional), and summary
 
 **Option B: Manual Issue Creation**
+
 1. Create issue with `merge-queue` label
 2. Include in body:
+
    ```
    PR Numbers: 123, 124, 125
    Release PR: 126 (optional)
@@ -93,14 +99,19 @@ Create a `merge_queue` environment:
 
 Comment `begin-merge` on the issue to start the workflow.
 
+
+- **Simple**: `begin-merge` - Processes PRs listed in issue body
+
 ### 3. Approval Process
 
-1. **Individual Team Tagging**: Team members from `merge-approvals` are tagged individually
+1. **Individual Team Tagging**: Team members from `merge-approvals` are tagged individually with timeout and reminder information
 2. **Approval Methods**:
-   - Comment "approved" or react with 👍
-   - Comment "rejected" or react with 👎
+   - Comment "approved"
+   - Comment "rejected"
 3. **Authorization**: Only `merge-approvals` team members can approve/reject
-4. **Timeout**: 60-minute timeout with 15-minute reminders
+   - Unauthorized attempts receive helpful warnings showing current team members
+4. **Configurable Timeouts**: Default 60-minute timeout with 15-minute reminders
+   - Can be customized via repository variables for testing
 
 ## How It Works
 
@@ -117,7 +128,12 @@ The system uses a distributed locking mechanism to prevent concurrent runs:
    - Labels: `distributed-lock`, `automation`
    - Body: Contains original issue reference, PR numbers, and status
 
-3. **Lock Release**: Tracking issue automatically closed when workflow completes
+3. **Automatic Lock Release**: Tracking issue automatically closed in all scenarios:
+   - ✅ **Successful completion** - Closed with "completed" status
+   - ❌ **Rejection by team member** - Closed with "rejected" status
+   - ⏰ **Timeout after configured minutes** - Closed with "timeout" status
+   - 🚫 **Workflow cancellation** - Closed with "cancelled" status
+   - 💥 **Workflow failure** - Closed with "failed" status
 
 ### Workflow Execution Process
 
@@ -142,8 +158,10 @@ The workflow executes through multiple jobs with specific dependencies:
 #### Job 3: Team Approval Request
 - **Uses**: Team information from Job 1
 - Tags individual `merge-approvals` team members (or team tag as fallback)
-- Waits for approval/rejection (60-minute timeout)
-- Sends reminders every 15 minutes using team information
+- Displays configurable timeout and reminder intervals in approval message
+- Waits for approval/rejection with configurable timeout (default: 60 minutes)
+- Sends reminders at configurable intervals (default: 15 minutes)
+- Prevents duplicate warning messages for unauthorized approval/rejection attempts
 
 #### Job 4: PR Validation
 - Validates PR existence and status
@@ -160,49 +178,60 @@ The workflow executes through multiple jobs with specific dependencies:
   5. Handles branch cleanup based on protection status
 
 #### Job 6: Summary & Cleanup
-- **Scripts**: `generate_summary.py` + `close_tracking_issue.py` (independent)
-- Posts comprehensive summary to original issue
+
+- Posts comprehensive summary to original issue including release PR information
 - Closes original issue automatically
-- Closes tracking issue with completion status
+- Closes tracking issue with appropriate completion status (completed/rejected/timeout/cancelled/failed)
+- Runs only for valid merge queue triggers (prevents cleanup on unrelated comments)
 
 ## Key Features
 
 ### 🔒 Duplicate Run Prevention
+
 - Uses distributed locks with `distributed-lock` labeled tracking issues
 - Only one merge queue can run per issue at a time
 - Automatic cleanup when workflow completes
 - Prevents race conditions and conflicts
 
 ### 👥 Individual Team Member Tagging
+
 - Tags each `merge-approvals` team member individually
 - No generic team mentions that might be missed
 - Clear authorization validation with helpful error messages
 - Shows current team members in unauthorized attempt warnings
+- Prevents duplicate warning messages for repeated unauthorized attempts
+- Displays timeout and reminder information in approval requests
 
 ### 🔄 Robust Sequential Processing
+
 - PRs processed in chronological order (lowest PR number first)
 - Comprehensive validation before merging
 - Automatic CI triggering and monitoring
 - Intelligent branch cleanup based on protection status
 
 ### 📊 Transparent Tracking & Reporting
-- Tracking issues show active merge queue processes
-- Detailed progress updates and final summaries
+
+- Tracking issues show active merge queue processes with automatic cleanup
+- Detailed progress updates and final summaries including release PR information
 - Complete audit trail in issue comments
 - Immediate notifications for failures
+- PR numbers displayed with clickable GitHub links (#123 format)
 
 ### ⚡ Immediate Feedback System
+
 - PR creators receive instant notifications when issues occur
 - No waiting until workflow completion to know about problems
 - Actionable guidance provided for each type of failure
 - Enables faster problem resolution
 
 ### 🏷️ Standardized Merge Messages
+
 - Consistent format: `[Merge Queue] #<PRNumber>-<PRTitle>-<BranchName>`
 - Easy to search git history by PR number, keywords, or branch names
 - Rich information content for better traceability
 
 ### 🛡️ Smart Branch Management
+
 - Uses GitHub API to determine branch protection status
 - Automatically preserves protected branches (releases, long-running features)
 - Automatically cleans up temporary branches (features, bugfixes)
@@ -211,6 +240,7 @@ The workflow executes through multiple jobs with specific dependencies:
 ## Monitoring
 
 ### Active Merge Queues
+
 ```bash
 # View active merge queue processes
 gh issue list --label distributed-lock --state open
@@ -223,6 +253,7 @@ gh api orgs/YOUR_ORG/teams/merge-approvals/members
 ```
 
 ### Workflow Execution Tracking
+
 - **GitHub Actions**: View workflow runs in repository Actions tab
 - **Tracking Issues**: Monitor progress via distributed-lock labeled issues
 - **Original Issues**: Check comments for detailed progress updates
@@ -230,37 +261,47 @@ gh api orgs/YOUR_ORG/teams/merge-approvals/members
 
 ## Configuration
 
-### Environment Variables
+### Repository Variables (Configurable Timeouts)
 
-The system uses configurable timeouts and parameters:
+The system supports configurable timeouts through repository variables for easy testing and customization:
 
-```yaml
-env:
-  APPROVAL_TIMEOUT_MINUTES: "60"      # Approval timeout (default: 60)
-  REMINDER_INTERVAL_MINUTES: "15"     # Reminder interval (default: 15)
-  CI_TIMEOUT_MINUTES: "45"            # CI completion timeout (default: 45)
-  MAX_STARTUP_WAIT: "300"             # CI startup timeout (default: 5 min)
-  CHECK_INTERVAL: "30"                # Status check frequency (default: 30 sec)
+**Repository Variables** (Settings → Secrets and variables → Actions → Variables):
+- `MERGE_QUEUE_APPROVAL_TIMEOUT_MINUTES` - Approval timeout (default: 60 minutes)
+- `MERGE_QUEUE_APPROVAL_REMINDER_INTERVAL_MINUTES` - Reminder interval (default: 15 minutes)
+
+**Setting Repository Variables:**
+
+```bash
+# Via GitHub CLI
+gh variable set MERGE_QUEUE_APPROVAL_TIMEOUT_MINUTES --body "30"
+gh variable set MERGE_QUEUE_APPROVAL_REMINDER_INTERVAL_MINUTES --body "10"
+
+# Via GitHub UI
+# Go to Settings → Secrets and variables → Actions → Variables tab
 ```
 
 ### Timeout Configuration
 
-| Setting | Default | Purpose | Recommended Range |
-|---------|---------|---------|-------------------|
-| APPROVAL_TIMEOUT_MINUTES | 60 min | Team approval timeout | 30-120 min |
-| CI_TIMEOUT_MINUTES | 45 min | CI execution timeout | 30-60 min |
-| MAX_STARTUP_WAIT | 5 min | CI startup timeout | 3-10 min |
-| REMINDER_INTERVAL_MINUTES | 15 min | Approval reminder frequency | 10-30 min |
+| Setting | Default | Purpose | Recommended Range | Testing Values |
+|---------|---------|---------|-------------------|----------------|
+| `APPROVAL_TIMEOUT_MINUTES` | 60 min | Team approval timeout | 30-120 min | 5-10 min |
+| `APPROVAL_REMINDER_INTERVAL_MINUTES` | 15 min | Approval reminder frequency | 10-30 min | 2-5 min |
+| `CI_TIMEOUT_MINUTES` | 45 min | CI execution timeout | 30-60 min | N/A (hardcoded) |
+| `MAX_STARTUP_WAIT` | 5 min | CI startup timeout | 3-10 min | N/A (hardcoded) |
+
+**For Testing**: Set shorter values (5-minute timeout, 2-minute reminders) to quickly test approval flows without waiting full production timeouts.
 
 ### Branch Handling Logic
 
 **Smart Branch Deletion:**
+
 - **Protected Branches**: Automatically preserved (releases, long-running features)
 - **Non-Protected Branches**: Automatically deleted after successful merge
 - **Detection Method**: Uses GitHub API to check branch protection rules
 - **Safe Defaults**: When in doubt, branches are preserved
 
 **Merge Message Format:**
+
 - **Standard PRs**: `[Merge Queue] #<PRNumber>-<PRTitle>-<BranchName>` (squash merge)
 - **Release PRs**: `[Merge Queue] #<PRNumber>-<PRTitle>-<BranchName>` (merge commit)
 
@@ -269,48 +310,78 @@ env:
 ### Common Issues
 
 #### 🔒 "Duplicate run detected"
+
+
 **Cause**: Another merge queue is already running for this issue
+
 **Solution**: Wait for current process to complete or check tracking issue status
+
 ```bash
 gh issue list --label distributed-lock --state open
 ```
 
-#### 👥 "Unauthorized approval"
+**Note**: Tracking issues are automatically closed when workflows complete, timeout, get rejected, or are cancelled.
+
+#### 👥 "Unauthorized approval/rejection"
+
 **Cause**: User is not in `merge-approvals` team
+
 **Solution**: Add user to team in GitHub organization settings
+
+**Features**:
+
+- System shows current team members in warning messages
+- Duplicate warnings are prevented for the same comment
+- Both approval and rejection attempts are validated
+
 ```bash
 gh api orgs/YOUR_ORG/teams/merge-approvals/members
 ```
 
 #### 🏷️ "Label not found"
+
 **Cause**: Required labels don't exist in repository
+
 **Solution**: Run setup script or create labels manually
+
 ```bash
 ./scripts/setup-merge-queue.sh
 ```
 
 #### 🧪 CI Tests Don't Trigger
+
 **Cause**: `CI_TRIGGER_TOKEN` permissions or `pr-test.yaml` configuration
+
 **Solutions**:
+
 - Verify token permissions and expiration
 - Check `pr-test.yaml` workflow exists and triggers on "Ok to test"
 - Test manual trigger: `gh pr comment PR_NUMBER --body "Ok to test"`
 
 #### 👥 Team Member Access Issues
+
 **Cause**: `CI_TRIGGER_TOKEN` lacks organization-level "Members" permission
+
 **Symptoms**:
+
 - Workflow fails at "Get team members" step
 - Error: "403 Forbidden" or "Resource not accessible by integration"
 - Falls back to generic team tag instead of individual member tagging
+
 **Solutions**:
+
 - Ensure `CI_TRIGGER_TOKEN` has **"Read access to members"** at **organization level**
+
 - Verify token is not expired
 - Check that `merge-approvals` team exists and has members
 - Test manually: `gh api orgs/YOUR_ORG/teams/merge-approvals/members`
 
 #### ⏰ Timeout Issues
+
 **Cause**: CI execution or approval timeouts
+
 **Solutions**:
+
 - Increase timeout values in workflow configuration
 - Optimize CI tests for faster execution
 - Check GitHub Actions queue status during peak times
@@ -318,6 +389,7 @@ gh api orgs/YOUR_ORG/teams/merge-approvals/members
 ### Manual Recovery
 
 If workflow fails partway through:
+
 1. **Identify completed PRs**: Check workflow summary
 2. **Update remaining PRs**: Manually update failed PRs with default branch
 3. **Re-run with subset**: Trigger workflow with remaining PR numbers
@@ -326,14 +398,17 @@ If workflow fails partway through:
 ## Usage Examples
 
 ### Example 1: Standard Feature PR Batch
+
 **Scenario**: Merging 5 feature PRs after sprint completion
 
 **Issue Body**:
+
 ```
 PR Numbers: 1234, 1235, 1236, 1237, 1238
 ```
 
 **Expected Flow**:
+
 1. Comment `begin-merge` → Creates tracking issue
 2. Team members tagged for approval
 3. PRs validated and processed in order: #1234 → #1235 → #1236 → #1237 → #1238
@@ -343,18 +418,28 @@ PR Numbers: 1234, 1235, 1236, 1237, 1238
 **Expected Duration**: 15-45 minutes (depending on CI times)
 
 ### Example 2: Release + Feature PRs
+
 **Scenario**: Deploying release branch followed by hotfixes
 
 **Issue Body**:
+
 ```
 PR Numbers: 1240, 1241
 Release PR: 1239
 ```
 
+**Alternative Trigger**:
+
+```
+Comment: begin-merge 1240,1241 release-pr:1239
+```
+
 **Expected Flow**:
+
 1. Release PR #1239 merged first (preserved branch)
 2. Feature PRs #1240 and #1241 processed sequentially
-3. Summary includes release merge status
+3. Summary includes release merge status with clickable PR links
+4. All PR numbers displayed as #1239, #1240, #1241 for easy navigation
 
 **Expected Duration**: 20-50 minutes
 
@@ -363,6 +448,7 @@ Release PR: 1239
 ### For Users (PR Authors and Reviewers)
 
 **Before triggering merge queue**:
+
 - ✅ Ensure all PRs are ready for merge and fully reviewed
 - ✅ Resolve any merge conflicts beforehand
 - ✅ Verify all required approvals are in place
@@ -370,6 +456,7 @@ Release PR: 1239
 - ✅ Use descriptive commit messages (workflow uses squash merge)
 
 **PR Preparation Checklist**:
+
 - [ ] All required reviewers have approved
 - [ ] CI tests are passing
 - [ ] No merge conflicts with default branch
@@ -379,6 +466,7 @@ Release PR: 1239
 ### For Administrators
 
 **Security and Maintenance**:
+
 - 🔐 Regularly review `merge-approvals` team membership
 - 🔄 Rotate `CI_TRIGGER_TOKEN` periodically (every 90 days)
 - 📊 Monitor workflow execution times and adjust timeouts
@@ -386,6 +474,7 @@ Release PR: 1239
 - 📋 Audit workflow usage through GitHub logs
 
 **Performance Optimization**:
+
 - 📈 Monitor CI execution times and optimize slow tests
 - 🚀 Consider splitting large PR batches if timeouts occur
 - 🔍 Review failed PRs to identify common patterns
@@ -394,42 +483,50 @@ Release PR: 1239
 ## Security Considerations
 
 ### Token Security
+
 - 🔒 Treat `CI_TRIGGER_TOKEN` as highly sensitive credential
 - 🔄 Rotate every 90 days or per organization policy
 - 📊 Monitor usage through GitHub audit logs
 - 🚫 Never log or expose token in workflow outputs
 
 ### Access Control
+
 - 👥 Limit `merge-approvals` team to essential personnel
 - 🔍 Regularly audit team membership (quarterly recommended)
 - 📋 Document team member roles and responsibilities
 - 🚨 Remove members immediately upon role changes
 
 ### Workflow Security
+
 - 🔒 Manual trigger only (no automatic triggers)
 - ✅ Requires explicit approval from authorized team members
 - 📝 All executions logged and auditable
 - 🎯 Limited to protected branches through environment configuration
+
 ## Maintenance
 
 ### Regular Tasks
 
 **Weekly**:
+
 - Review failed workflow executions
 - Monitor immediate notification effectiveness
 - Check tracking issue cleanup
 
 **Monthly**:
+
 - Audit `merge-approvals` team membership
 - Review notification patterns and response times
 - Monitor workflow success rates
 
 **Quarterly**:
+
 - Rotate `CI_TRIGGER_TOKEN`
 - Review branch protection rules
 - Update timeout configurations based on usage
 
 **Annually**:
+
 - Review and update workflow configuration
 - Update notification templates
 - Assess system performance and optimization opportunities
@@ -437,12 +534,14 @@ Release PR: 1239
 ### System Health Monitoring
 
 **Performance Metrics**:
+
 - Average CI execution times
 - Workflow success rates
 - Notification response times
 - Common failure patterns
 
 **Cleanup Verification**:
+
 - Tracking issues are properly closed
 - Original issues are closed after completion
 - No orphaned distributed locks
@@ -451,6 +550,7 @@ Release PR: 1239
 ## Quick Reference
 
 ### Setup Checklist
+
 - [ ] Required labels created (`merge-queue`, `distributed-lock`, `automation`)
 - [ ] `merge-approvals` team configured with appropriate members
 - [ ] `merge_queue` environment set up with team as reviewers
@@ -458,6 +558,7 @@ Release PR: 1239
 - [ ] `pr-test.yaml` workflow present and functional
 
 ### Common Commands
+
 ```bash
 # View active merge queues
 gh issue list --label distributed-lock --state open
@@ -479,14 +580,22 @@ gh run list --workflow="merge_queue.yaml"
 
 | Parameter | Required | Format | Example | Description |
 |-----------|----------|--------|---------|-------------|
-| PR Numbers | ✅ Yes | Comma-separated in issue body | `PR Numbers: 123,124,125` | List of PRs to merge |
-| Release PR | ❌ No | Single number in issue body | `Release PR: 999` | Optional release PR to merge first |
+| PR Numbers | ✅ Yes | Comma-separated in issue body or comment | `PR Numbers: 123,124,125` or `begin-merge 123,124,125` | List of PRs to merge |
+| Release PR | ❌ No | Single number in issue body or comment | `Release PR: 999` or `begin-merge 123,124 release-pr:999` | Optional release PR to merge first |
+
+### Repository Variables Reference
+
+| Variable | Default | Purpose | Example Values |
+|----------|---------|---------|----------------|
+| `MERGE_QUEUE_APPROVAL_TIMEOUT_MINUTES` | 60 | How long to wait for team approval | `30` (production), `5` (testing) |
+| `MERGE_QUEUE_APPROVAL_REMINDER_INTERVAL_MINUTES` | 15 | How often to send approval reminders | `10` (production), `2` (testing) |
 
 ## Summary
 
 The **Merge Queue System** provides a comprehensive, enterprise-grade solution for batch merging pull requests with the following key capabilities:
 
 ### ✅ Core Features
+
 - **🔒 Distributed Lock System** - Prevents duplicate runs using tracking issues
 - **👥 Individual Team Tagging** - Direct member notifications for better visibility
 - **🔄 Sequential Processing** - Intelligent PR ordering with comprehensive validation
@@ -497,6 +606,7 @@ The **Merge Queue System** provides a comprehensive, enterprise-grade solution f
 - **🔐 Security Controls** - Team-based authorization with approval gates
 
 ### 🎯 Benefits
+
 - **Prevents Conflicts** - Only one merge queue per issue at a time
 - **Improves Developer Experience** - Instant feedback on failures
 - **Maintains Code Quality** - Comprehensive validation and CI integration
@@ -505,7 +615,3 @@ The **Merge Queue System** provides a comprehensive, enterprise-grade solution f
 - **Scales Effectively** - Handles production-scale merge operations
 
 The system is designed for production environments where code quality, developer productivity, and operational reliability are paramount. With recent enhancements including distributed locking and immediate notifications, it provides a superior merge queue experience while maintaining enterprise-grade security and auditability.
-
----
-
-*For additional support or questions, contact your repository administrators or run the setup script: `./scripts/setup-merge-queue.sh`*
