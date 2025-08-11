@@ -18,8 +18,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from common.gh_utils import GitHubUtils
 
-# Global set to track unauthorized comments we've already warned about
-warned_unauthorized_comments = set()
+# Global sets to track unauthorized comments we've already warned about
+warned_unauthorized_approvals = set()
+warned_unauthorized_rejections = set()
 
 
 def parse_iso_timestamp(timestamp_str: str) -> Optional[datetime]:
@@ -133,7 +134,7 @@ def check_for_approval_or_rejection(issue_number: int, trigger_timestamp: str, o
                 comment_key = f"{author}_{comment_id}"
 
                 # Only post warning if we haven't already warned about this comment
-                if comment_key not in warned_unauthorized_comments:
+                if comment_key not in warned_unauthorized_approvals:
                     warning_message: str = f"""⚠️ **Unauthorized Approval Attempt**
 
 @{author} attempted to approve this request, but is not a member of the `merge-approvals` team.
@@ -143,7 +144,7 @@ def check_for_approval_or_rejection(issue_number: int, trigger_timestamp: str, o
 
                     result = GitHubUtils.add_comment(str(issue_number), warning_message)
                     if result.success:
-                        warned_unauthorized_comments.add(comment_key)
+                        warned_unauthorized_approvals.add(comment_key)
                         print(f"✅ Posted warning for unauthorized approval from {author}")
                     else:
                         print(f"⚠️ Failed to post warning comment: {result.error_details}")
@@ -163,7 +164,7 @@ def check_for_approval_or_rejection(issue_number: int, trigger_timestamp: str, o
                     comment_key = f"{author}_{comment_id}"
 
                     # Only post warning if we haven't already warned about this comment
-                    if comment_key not in warned_unauthorized_comments:
+                    if comment_key not in warned_unauthorized_approvals:
                         warning_message: str = f"""⚠️ **Unauthorized Approval Attempt**
 
 @{author} attempted to approve this request, but is not a member of the `merge-approvals` team.
@@ -172,7 +173,7 @@ def check_for_approval_or_rejection(issue_number: int, trigger_timestamp: str, o
 
                         result = GitHubUtils.add_comment(str(issue_number), warning_message)
                         if result.success:
-                            warned_unauthorized_comments.add(comment_key)
+                            warned_unauthorized_approvals.add(comment_key)
                             print(f"✅ Posted warning for unauthorized approval from {author}")
                         else:
                             print(f"⚠️ Failed to post warning comment: {result.error_details}")
@@ -189,17 +190,28 @@ def check_for_approval_or_rejection(issue_number: int, trigger_timestamp: str, o
                 return "rejected", author
             elif team_members:
                 print(f"⚠️ Rejection from unauthorized user: {author} (not in team: {', '.join(team_members)})")
-                # Post warning but continue checking
-                warning_message: str = f"""⚠️ **Unauthorized Rejection Attempt**
+
+                # Create a unique identifier for this comment to avoid duplicate warnings
+                comment_id = comment.get("id", "")
+                comment_key = f"{author}_{comment_id}"
+
+                # Only post warning if we haven't already warned about this comment
+                if comment_key not in warned_unauthorized_rejections:
+                    warning_message: str = f"""⚠️ **Unauthorized Rejection Attempt**
 
 @{author} attempted to reject this request, but is not a member of the `merge-approvals` team.
 
 **Required**: Rejection must come from a member of the `merge-approvals` team.
 **Current team members**: {', '.join([f'@{member}' for member in team_members])}"""
 
-                result = GitHubUtils.add_comment(str(issue_number), warning_message)
-                if not result.success:
-                    print(f"⚠️ Failed to post warning comment: {result.error_details}")
+                    result = GitHubUtils.add_comment(str(issue_number), warning_message)
+                    if result.success:
+                        warned_unauthorized_rejections.add(comment_key)
+                        print(f"✅ Posted warning for unauthorized rejection from {author}")
+                    else:
+                        print(f"⚠️ Failed to post warning comment: {result.error_details}")
+                else:
+                    print(f"⚠️ Already warned about unauthorized rejection from {author} (comment {comment_id})")
             else:
                 # Fallback to API check if we couldn't get team members list
                 print(f"⚠️ Could not retrieve team members, falling back to API check")
@@ -208,15 +220,27 @@ def check_for_approval_or_rejection(issue_number: int, trigger_timestamp: str, o
                     return "rejected", author
                 else:
                     print(f"⚠️ Rejection from unauthorized user: {author}")
-                    warning_message: str = f"""⚠️ **Unauthorized Rejection Attempt**
+
+                    # Create a unique identifier for this comment to avoid duplicate warnings
+                    comment_id = comment.get("id", "")
+                    comment_key = f"{author}_{comment_id}"
+
+                    # Only post warning if we haven't already warned about this comment
+                    if comment_key not in warned_unauthorized_rejections:
+                        warning_message: str = f"""⚠️ **Unauthorized Rejection Attempt**
 
 @{author} attempted to reject this request, but is not a member of the `merge-approvals` team.
 
 **Required**: Rejection must come from a member of the `merge-approvals` team."""
 
-                    result = GitHubUtils.add_comment(str(issue_number), warning_message)
-                    if not result.success:
-                        print(f"⚠️ Failed to post warning comment: {result.error_details}")
+                        result = GitHubUtils.add_comment(str(issue_number), warning_message)
+                        if result.success:
+                            warned_unauthorized_rejections.add(comment_key)
+                            print(f"✅ Posted warning for unauthorized rejection from {author}")
+                        else:
+                            print(f"⚠️ Failed to post warning comment: {result.error_details}")
+                    else:
+                        print(f"⚠️ Already warned about unauthorized rejection from {author} (comment {comment_id})")
 
     return None, None
 
@@ -245,8 +269,8 @@ def send_reminder(issue_number: int, remaining_minutes: int) -> None:
 {member_tags} - Please review and approve this merge request.
 
 **Time remaining**: {remaining_minutes} minutes
-**To approve**: React with 👍 or reply with 'approved'
-**To reject**: React with 👎 or reply with 'rejected'"""
+**To approve**: Reply with 'approved'
+**To reject**: Reply with 'rejected'"""
 
     result = GitHubUtils.add_comment(str(issue_number), reminder_message)
     if result.success:
@@ -255,11 +279,11 @@ def send_reminder(issue_number: int, remaining_minutes: int) -> None:
         print(f"⚠️ Failed to send reminder: {result.error_details}")
 
 
-def send_timeout_message(issue_number: int) -> None:
+def send_timeout_message(issue_number: int, timeout_minutes: int) -> None:
     """Send timeout message to the issue."""
-    timeout_message: str = """⏰ **Approval Timeout**
+    timeout_message: str = f"""⏰ **Approval Timeout**
 
-No approval was received within 60 minutes. The merge queue request has timed out.
+No approval was received within {timeout_minutes} minutes. The merge queue request has timed out.
 
 **To restart**: Comment `begin-merge` again to start a new approval process."""
 
@@ -310,6 +334,10 @@ def main() -> int:
     repository: str = GitHubUtils.get_env_var("GITHUB_REPOSITORY")
     org: str = repository.split('/')[0]
 
+    # Get configurable timeout and reminder interval values
+    timeout_minutes_str: str = GitHubUtils.get_env_var("APPROVAL_TIMEOUT_MINUTES", "60")
+    reminder_interval_str: str = GitHubUtils.get_env_var("APPROVAL_REMINDER_INTERVAL_MINUTES", "15")
+
     # Convert issue number to int
     try:
         issue_number: int = int(issue_number_str)
@@ -317,15 +345,34 @@ def main() -> int:
         print(f"❌ Invalid issue number: {issue_number_str}")
         return 1
 
+    # Convert timeout and reminder interval to int with validation
+    try:
+        timeout_minutes: int = int(timeout_minutes_str)
+        if timeout_minutes <= 0:
+            print(f"⚠️ Invalid timeout value '{timeout_minutes_str}', using default: 60")
+            timeout_minutes = 60
+    except ValueError:
+        print(f"⚠️ Invalid timeout value '{timeout_minutes_str}', using default: 60")
+        timeout_minutes = 60
+
+    try:
+        reminder_interval: int = int(reminder_interval_str)
+        if reminder_interval <= 0:
+            print(f"⚠️ Invalid reminder interval '{reminder_interval_str}', using default: 15")
+            reminder_interval = 15
+    except ValueError:
+        print(f"⚠️ Invalid reminder interval '{reminder_interval_str}', using default: 15")
+        reminder_interval = 15
+
     print("=== Waiting for Approval ===")
     print(f"Issue: #{issue_number}")
     print(f"Trigger timestamp: {trigger_timestamp}")
     print(f"Repository: {repository}")
     print(f"Organization: {org}")
+    print(f"Timeout: {timeout_minutes} minutes")
+    print(f"Reminder interval: {reminder_interval} minutes")
     print("============================")
 
-    timeout_minutes: int = 60
-    reminder_interval: int = 15
     elapsed_minutes: int = 0
     
     while elapsed_minutes < timeout_minutes:
@@ -350,6 +397,7 @@ def main() -> int:
             if github_output:
                 with open(github_output, 'a') as f:
                     f.write(f"approved=false\n")
+                    f.write(f"rejection_reason=rejected\n")
             return 1
 
         # Send reminder every 15 minutes
@@ -363,12 +411,13 @@ def main() -> int:
 
     # Timeout reached
     print("⏰ Approval timeout reached")
-    send_timeout_message(issue_number)
+    send_timeout_message(issue_number, timeout_minutes)
     # Set outputs for GitHub Actions
     github_output = os.environ.get('GITHUB_OUTPUT')
     if github_output:
         with open(github_output, 'a') as f:
             f.write(f"approved=false\n")
+            f.write(f"rejection_reason=timeout\n")
     return 1
 
 
