@@ -372,7 +372,16 @@ jobs:
         if: always()
         run: |
           # Determine completion status based on job results and approval outcome
-          if [[ "${{ needs.check-trigger.outputs.approved }}" == "false" && "${{ needs.check-trigger.result }}" == "success" ]]; then
+          echo "Debug: check-trigger.result = '${{ needs.check-trigger.result }}'"
+          echo "Debug: check-trigger.outputs.approved = '${{ needs.check-trigger.outputs.approved }}'"
+          echo "Debug: check-trigger.outputs.rejection_reason = '${{ needs.check-trigger.outputs.rejection_reason }}'"
+          echo "Debug: merge-approved.result = '${{ needs.merge-approved.result }}'"
+
+          if [[ "${{ needs.check-trigger.result }}" == "skipped" ]]; then
+            # Check-trigger job was skipped - likely due to duplicate prevention or workflow conditions
+            echo "COMPLETION_STATUS=failed" >> $GITHUB_ENV
+            echo "SUMMARY_MESSAGE=Merge queue workflow was skipped (likely duplicate request or failed conditions)." >> $GITHUB_ENV
+          elif [[ "${{ needs.check-trigger.outputs.approved }}" == "false" && "${{ needs.check-trigger.result }}" == "success" ]]; then
             # Approval step completed but returned false - check specific reason
             if [[ "${{ needs.check-trigger.outputs.rejection_reason }}" == "timeout" ]]; then
               echo "COMPLETION_STATUS=timeout" >> $GITHUB_ENV
@@ -388,7 +397,7 @@ jobs:
           elif [[ "${{ needs.check-trigger.result }}" == "cancelled" ]]; then
             echo "COMPLETION_STATUS=cancelled" >> $GITHUB_ENV
             echo "SUMMARY_MESSAGE=Merge queue workflow was cancelled." >> $GITHUB_ENV
-          elif [[ "${{ needs.check-trigger.result }}" != "success" ]]; then
+          elif [[ "${{ needs.check-trigger.result }}" == "failure" ]]; then
             echo "COMPLETION_STATUS=failed" >> $GITHUB_ENV
             echo "SUMMARY_MESSAGE=Merge queue failed during initial checks or approval process." >> $GITHUB_ENV
           elif [[ "${{ needs.merge-approved.result }}" == "success" ]]; then
