@@ -156,6 +156,7 @@ jobs:
       release_pr: ${{ steps.initialize.outputs.release_pr }}
       required_approvals: ${{ steps.initialize.outputs.required_approvals }}
       approved: ${{ steps.wait-approval.outputs.approved }}
+      rejection_reason: ${{ steps.wait-approval.outputs.rejection_reason }}
 
 
   merge-release:
@@ -354,18 +355,33 @@ jobs:
           ORIGINAL_ISSUE_NUMBER: ${{ github.event.issue.number }}
 
       - name: Close tracking issue
-        if: always() && !cancelled()
+        if: always()
         run: |
-          # Determine completion status based on job results
-          if [[ "${{ needs.check-trigger.result }}" != "success" ]]; then
+          # Determine completion status based on job results and approval outcome
+          if [[ "${{ needs.check-trigger.outputs.approved }}" == "false" && "${{ needs.check-trigger.result }}" == "success" ]]; then
+            # Approval step completed but returned false - check specific reason
+            if [[ "${{ needs.check-trigger.outputs.rejection_reason }}" == "timeout" ]]; then
+              echo "COMPLETION_STATUS=timeout" >> $GITHUB_ENV
+              echo "SUMMARY_MESSAGE=Merge queue request timed out after 60 minutes without approval." >> $GITHUB_ENV
+            elif [[ "${{ needs.check-trigger.outputs.rejection_reason }}" == "rejected" ]]; then
+              echo "COMPLETION_STATUS=rejected" >> $GITHUB_ENV
+              echo "SUMMARY_MESSAGE=Merge queue request was rejected by an authorized team member." >> $GITHUB_ENV
+            else
+              echo "COMPLETION_STATUS=rejected" >> $GITHUB_ENV
+              echo "SUMMARY_MESSAGE=Merge queue request was not approved." >> $GITHUB_ENV
+            fi
+          elif [[ "${{ needs.check-trigger.result }}" == "cancelled" ]]; then
+            echo "COMPLETION_STATUS=cancelled" >> $GITHUB_ENV
+            echo "SUMMARY_MESSAGE=Merge queue workflow was cancelled." >> $GITHUB_ENV
+          elif [[ "${{ needs.check-trigger.result }}" != "success" ]]; then
             echo "COMPLETION_STATUS=failed" >> $GITHUB_ENV
-            echo "SUMMARY_MESSAGE=Merge queue failed during initial checks." >> $GITHUB_ENV
+            echo "SUMMARY_MESSAGE=Merge queue failed during initial checks or approval process." >> $GITHUB_ENV
           elif [[ "${{ needs.merge-approved.result }}" == "success" ]]; then
             echo "COMPLETION_STATUS=completed" >> $GITHUB_ENV
             echo "SUMMARY_MESSAGE=Merge queue completed successfully." >> $GITHUB_ENV
           elif [[ "${{ needs.merge-approved.result }}" == "cancelled" ]]; then
-            echo "COMPLETION_STATUS=rejected" >> $GITHUB_ENV
-            echo "SUMMARY_MESSAGE=Merge queue was rejected or cancelled." >> $GITHUB_ENV
+            echo "COMPLETION_STATUS=cancelled" >> $GITHUB_ENV
+            echo "SUMMARY_MESSAGE=Merge queue workflow was cancelled during merge process." >> $GITHUB_ENV
           else
             echo "COMPLETION_STATUS=failed" >> $GITHUB_ENV
             echo "SUMMARY_MESSAGE=Merge queue failed during execution." >> $GITHUB_ENV

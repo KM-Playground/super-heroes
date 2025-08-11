@@ -374,6 +374,7 @@ def main() -> int:
             if github_output:
                 with open(github_output, 'a') as f:
                     f.write(f"approved=false\n")
+                    f.write(f"rejection_reason=rejected\n")
             return 1
 
         # Send reminder every 15 minutes
@@ -393,6 +394,7 @@ def main() -> int:
     if github_output:
         with open(github_output, 'a') as f:
             f.write(f"approved=false\n")
+            f.write(f"rejection_reason=timeout\n")
     return 1
 
 
