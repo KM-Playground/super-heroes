@@ -26,6 +26,7 @@ class MergeQueueData:
     total_requested: int
     submitter: str
     original_issue_number: str
+    release_pr: str
     merged: List[str]
     unmergeable: List[str]
     failed_update: List[str]
@@ -55,6 +56,7 @@ def parse_environment_data() -> MergeQueueData:
     required_approvals: str = GitHubUtils.get_env_var('REQUIRED_APPROVALS', '2')
     submitter: str = GitHubUtils.get_env_var('SUBMITTER', 'unknown')
     original_issue_number: str = GitHubUtils.get_env_var('ORIGINAL_ISSUE_NUMBER', '')
+    release_pr: str = GitHubUtils.get_env_var('RELEASE_PR', '')
 
     def parse_comma_separated(env_var: str) -> List[str]:
         value: str = GitHubUtils.get_env_var(env_var, '')
@@ -83,6 +85,7 @@ def parse_environment_data() -> MergeQueueData:
         total_requested=total_requested,
         submitter=submitter,
         original_issue_number=original_issue_number,
+        release_pr=release_pr,
         merged=merged,
         unmergeable=unmergeable,
         failed_update=failed_update,
@@ -100,12 +103,17 @@ def generate_summary_with_authors(data: MergeQueueData) -> str:
                         len(data.failed_ci) + len(data.timeout) + len(data.startup_timeout) + len(data.failed_merge))
     date: str = datetime.now().strftime('%Y-%m-%d')
 
+    # Build release PR info if provided
+    release_info = ""
+    if data.release_pr and data.release_pr.strip():
+        release_info = f"\n- **Release PR**: #{data.release_pr.strip()}"
+
     summary: str = f"""# PR Merge Summary - {date}
 
 ## Overview
 - **Total PRs Requested**: {data.total_requested}
 - **Successfully Merged**: {total_merged}
-- **Failed to Merge**: {total_failed}
+- **Failed to Merge**: {total_failed}{release_info}
 
 ## Successfully Merged PRs ✅
 """
