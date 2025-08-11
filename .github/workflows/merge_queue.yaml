@@ -336,7 +336,7 @@ jobs:
     name: Send Summary Notification
     needs: [check-trigger, validate-prs, merge-approved]
     runs-on: ubuntu-latest
-    if: always() && !cancelled() && needs.check-trigger.outputs.approved == 'true'
+    if: always() && !cancelled()
     permissions:
       contents: read
       issues: write
@@ -350,6 +350,7 @@ jobs:
           python-version: "3.13"
 
       - name: Send Summary
+        if: needs.check-trigger.outputs.approved == 'true'
         run: |
           python3 .github/scripts/merge_queue/generate_summary.py
         env:
