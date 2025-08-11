@@ -64,7 +64,7 @@ This issue tracks an active merge queue process to prevent duplicate runs.
 
 ⚠️ **Do not manually close this issue** - it will be closed automatically when the merge queue process completes.
 
-**Monitor Progress**: Check the [original issue](../../issues/{original_issue_number}) for updates.
+**Monitor Progress**: Check #{original_issue_number} for updates.
 """
 
 

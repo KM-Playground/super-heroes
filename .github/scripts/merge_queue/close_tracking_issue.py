@@ -77,6 +77,7 @@ def close_tracking_issue(tracking_issue_number: int, completion_status: str, sum
         "completed": "✅",
         "rejected": "❌",
         "timeout": "⏰",
+        "cancelled": "🚫",
         "failed": "💥"
     }.get(completion_status, "🔄")
 
