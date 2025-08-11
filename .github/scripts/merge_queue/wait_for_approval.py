@@ -269,8 +269,8 @@ def send_reminder(issue_number: int, remaining_minutes: int) -> None:
 {member_tags} - Please review and approve this merge request.
 
 **Time remaining**: {remaining_minutes} minutes
-**To approve**: React with 👍 or reply with 'approved'
-**To reject**: React with 👎 or reply with 'rejected'"""
+**To approve**: Reply with 'approved'
+**To reject**: Reply with 'rejected'"""
 
     result = GitHubUtils.add_comment(str(issue_number), reminder_message)
     if result.success:

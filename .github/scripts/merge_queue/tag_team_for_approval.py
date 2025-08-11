@@ -16,6 +16,32 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from common.gh_utils import GitHubUtils
 
 
+def format_pr_numbers(pr_numbers: str) -> str:
+    """
+    Format comma-separated PR numbers with # prefix for GitHub linking.
+
+    Args:
+        pr_numbers: Comma-separated PR numbers (e.g., "123,456,789")
+
+    Returns:
+        Formatted PR numbers with # prefix (e.g., "#123, #456, #789")
+    """
+    if not pr_numbers or not pr_numbers.strip():
+        return pr_numbers
+
+    # Split by comma, strip whitespace, add # prefix, and rejoin
+    formatted_prs = []
+    for pr in pr_numbers.split(','):
+        pr = pr.strip()
+        if pr:
+            # Add # prefix if not already present
+            if not pr.startswith('#'):
+                pr = f"#{pr}"
+            formatted_prs.append(pr)
+
+    return ', '.join(formatted_prs)
+
+
 def get_team_tag_from_env() -> str:
     """
     Get team tag from environment variables set by the workflow.
@@ -59,6 +85,9 @@ def create_approval_message(commenter: str, pr_numbers: str, member_tags: str, r
     Returns:
         Formatted approval request message
     """
+    # Format PR numbers with # prefix for GitHub linking
+    formatted_pr_numbers = format_pr_numbers(pr_numbers)
+
     # Build release PR info if provided
     release_info = ""
     if release_pr and release_pr.strip():
@@ -67,15 +96,15 @@ def create_approval_message(commenter: str, pr_numbers: str, member_tags: str, r
     approval_message = f"""{member_tags} 🚀 **Merge Queue Approval Requested**
 
 **Requested by**: @{commenter}
-**PR Numbers**: {pr_numbers}{release_info}
+**PR Numbers**: {formatted_pr_numbers}{release_info}
 
 **Action Required**: Please review the PRs and approve this merge queue request.
 
 ⏰ **Timeout**: This request will timeout in 60 minutes if not approved.
 📋 **Reminders**: You'll receive reminders every 15 minutes.
 
-**To approve**: React with 👍 to this comment or reply with 'approved'
-**To reject**: React with 👎 to this comment or reply with 'rejected'
+**To approve**: Reply with 'approved'
+**To reject**: Reply with 'rejected'
 
 *This is an automated merge queue approval request.*"""
 
