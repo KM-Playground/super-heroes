@@ -296,13 +296,25 @@ No approval was received within {timeout_minutes} minutes. The merge queue reque
 
 def send_approval_confirmation(issue_number: int, approver: str, repository: str) -> None:
     """Send approval confirmation message."""
+    # Get workflow run information for direct link
+    server_url = GitHubUtils.get_env_var("GITHUB_SERVER_URL", "https://github.com")
+    run_id = GitHubUtils.get_env_var("GITHUB_RUN_ID", "")
+
+    # Build workflow run URL if we have the run ID
+    if run_id:
+        workflow_url = f"{server_url}/{repository}/actions/runs/{run_id}"
+        progress_link = f"[View workflow progress]({workflow_url})"
+    else:
+        # Fallback to general Actions tab
+        progress_link = f"[Actions tab](https://github.com/{repository}/actions)"
+
     confirmation_message: str = f"""✅ **Approved by @{approver}**
 
 ✅ **Authorization Verified**: Member of `merge-approvals` team
 
 The merge queue workflow will now execute automatically.
 
-Monitor the progress in the [Actions tab](https://github.com/{repository}/actions)."""
+Monitor the progress: {progress_link}"""
 
     result = GitHubUtils.add_comment(str(issue_number), confirmation_message)
     if result.success:
